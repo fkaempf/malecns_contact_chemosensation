@@ -173,7 +173,7 @@ View(cf_partner_summary(cf_ids(malecns = 'AN05B035'),partners = 'out',normalise=
 #AN05B023 --> PPN1
 #AN09B017 --> vAB3
 
-#since AN05B035 is also connecting to mAL lets look at the vAB3 and BA1 overlook
+#since AN05B035 is also connecting to mAL lets look at the vAB3 and DA1 overlook
 
 AN05B035.out.unique.mAL.type <- cf_partners(cf_ids(malecns = 'AN05B035'), partners = 'out',threshold=synapse_cutoff) %>%
   filter(grepl("^mAL_(([a-zA-Z]([0-9]|[1-9][0-9])[a-zA-Z]?))$", type)) %>%
