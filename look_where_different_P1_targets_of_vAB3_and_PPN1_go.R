@@ -106,7 +106,7 @@ b =mAL.not.vAB3.P1.outputs$type.post %>% unique()
 c = vAB3.and.mAL.and.PPN1.P1.outputs$type.post %>% unique()
 d = vAB3.and.mAL.not.PPN1.P1.outputs$type.post %>% unique()
 
-c
+
 
 venn.plot <- venn.diagram(
   x = list(vAB_not_mAL.P1.output=a,mAL_not_vAB.P1.output=b,vAB_and_mAL_and_PPN1.P1.output=c,vAB_and_mAL_bot_PPN1.P1.output=d),  # Define the three sets
