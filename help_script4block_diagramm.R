@@ -152,7 +152,7 @@ print(in_from_parent/total_out_parent)
 print(in_from_parent/total_in_child)
 
 #inputs PPN1 and vAB3
-
+vAB3.inputs <- cf_partners(cf_ids(malecns = vAB3.id),partners='inputs',threshold = synapse_cutoff)
 vAB3.inputs.summary <- cf_partners(cf_ids(malecns = vAB3.id),partners='inputs',threshold = synapse_cutoff)%>%
   group_by(post_id,type) %>%
   summarize(total_weight = sum(weight, na.rm = TRUE))%>%
@@ -162,12 +162,15 @@ vAB3.inputs.summary <- cf_partners(cf_ids(malecns = vAB3.id),partners='inputs',t
               values_fill = 0)%>%
   ungroup()
   
-vAB3.inputs.summary.normed <- (colSums(vAB3.inputs.summary[-1])/cf_partners(cf_ids(malecns = vAB3.id),partners='inputs',threshold = synapse_cutoff) %>%
+vAB3.inputs.summary.normed <- (colSums(vAB3.inputs.summary[-1])/vAB3.inputs %>%
                                  pull(weight)%>%
                                  sum())%>%sort(decreasing=T)
 
 vAB3.inputs.summary.means <- colMeans(vAB3.inputs.summary[-1])%>%sort(decreasing=T)
+vAB3.inputs.summary.sum <- colSums(vAB3.inputs.summary[-1])%>%sort(decreasing=T)
 
+
+PPN1.inputs <- cf_partners(cf_ids(malecns = PPN1.id),partners='inputs',threshold = synapse_cutoff)
 PPN1.inputs.summary <- cf_partners(cf_ids(malecns = PPN1.id),partners='inputs',threshold = synapse_cutoff)%>%
   group_by(post_id,type) %>%
   summarize(total_weight = sum(weight, na.rm = TRUE))%>%
@@ -176,10 +179,26 @@ PPN1.inputs.summary <- cf_partners(cf_ids(malecns = PPN1.id),partners='inputs',t
               values_from = total_weight,
               values_fill = 0)
 
-PPN1.inputs.summary.normed <- (colSums(PPN1.inputs.summary[-1])/cf_partners(cf_ids(malecns = PPN1.id),partners='inputs',threshold = synapse_cutoff) %>%
+PPN1.inputs.summary.normed <- (colSums(PPN1.inputs.summary[-1])/PPN1.inputs %>%
                                  pull(weight)%>%
                                  sum())%>%sort(decreasing=T)
 PPN1.inputs.summary.means <- colMeans(PPN1.inputs.summary[-1])%>%sort(decreasing=T)
+PPN1.inputs.summary.sum <- colSums(PPN1.inputs.summary[-1])%>%sort(decreasing=T)
+
+#to find total synapeses of input cells
+cf_partners(cf_ids(malecns=vAB3.inputs %>% filter(type=='AN05B023') %>% pull(pre_id) %>% unique()),partners = 'outputs',threshold=synapse_cutoff) %>%pull(weight) %>% sum()
+vAB3.inputs %>% filter(type=='IN05B011') %>% pull(weight) %>% sum()
+
+
+
+big.vAB3.input.output <- cf_partners(cf_ids(malecns=vAB3.inputs %>% 
+                                       filter(type=='AN05B035') %>% 
+                                       pull(pre_id) %>% 
+                                       unique()),partners = 'outputs',threshold=synapse_cutoff)
+big.vAB3.input.output.shared.with.vAB3 <- big.vAB3.input.output%>%
+  filter(post_id %in% (cf_partners(cf_ids(malecns=vAB3.id),partners='output',threshold = synapse_cutoff)%>%
+           pull(post_id)%>%
+           unique()))
 
 
 
@@ -209,5 +228,5 @@ malevnc::manc_neuprint_meta('AN05B023')
 malevnc::choose_malevnc_dataset('VNC')
 malevnc::manc_neuprint_meta('AN05B023')
 
-
+cf_meta(cf_ids(flywire='/type:mAL_m1'))%>%View()
 
