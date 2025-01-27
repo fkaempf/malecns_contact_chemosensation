@@ -5,3 +5,6 @@
 .DS_Store
 .log
 VennDiagram.*.log
+*.tif
+*.zip
+*.lsm
