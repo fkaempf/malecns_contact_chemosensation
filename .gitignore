@@ -8,3 +8,6 @@ VennDiagram.*.log
 *.tif
 *.zip
 *.lsm
+*.afdesign
+*.jpg
+*.afdesign~lock~
