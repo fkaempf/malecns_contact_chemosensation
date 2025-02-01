@@ -311,13 +311,13 @@ vAB3.mAL.pair.df%>%
   group_by(P1.type)%>%
   summarize(mean.ratio.input.vAB3=mean(ratio.input.vAB3),mean.sum.ratio.input.mAL=mean(sum.ratio.input.mAL),P1.type=P1.type) %>%
   ggplot(., aes(x = mean.ratio.input.vAB3, y = mean.sum.ratio.input.mAL)) +
-  geom_point(color = "blue", size = 1,alpha=1) +  # Add points
+  geom_point(color = "blue", size = 3,alpha=1) +  # Add points
   labs(
     title = "Scatter Plot of vAB3 input ratio onto a P1.type vs the sum input ratio of the children of that vAB3",
     x = 'mean.ratio.input.vAB3',
     y ='mean.sum.ratio.input.mAL'
   ) +
-  geom_text(aes(label = P1.type), size = 3, hjust = 0, vjust = 0.5, nudge_x = 0.002) +
+  geom_text(aes(label = P1.type), size = 5, hjust = 0, vjust = 0.5, nudge_x = 0.002) +
   geom_abline(alpha=0.2)+
   theme_minimal()
 
