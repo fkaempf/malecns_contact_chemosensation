@@ -10,8 +10,8 @@ library(ggraph)
 
 vAB3.id <- c('16302', '15645', '16535', '16830', '13693', '13341', '11998', '16747',  '512498', '524298', '14320', '922722')
 PPN1.id <- c('520195', '13399', '17503', '21035', '17416', '18164','17492','520195','18430','18696','200336','801269','18324','18627','21309','20108')
-#PPN1.id <- cf_meta(cf_ids(malecns='AN05B102')) %>% pull(id) #Bella, Billy, Lisa
-#vAB3.id <- c('14320','922722','16747','524298') #Bella, Billy, Lisa
+PPN1.id <- cf_meta(cf_ids(malecns='AN05B102')) %>% pull(id) #Bella, Billy, Lisa
+vAB3.id <- c('14320','922722','16747','524298') #Bella, Billy, Lisa
 synapse_cutoff <- 5
 
 #venn diagram P1 targets of vAB3 PPN1 and mAL cell level
@@ -157,13 +157,11 @@ PPN1.inputs.sensory <- PPN1.inputs %>% filter(superclass == 'sensory')
 
 dev.off()
 venn.plot <- venn.diagram(
-  x = list(vAB3.all.inputs = as.character(vAB3.inputs$post_id), 
-           PPN1.all.inputs = as.character(PPN1.inputs$post_id),
-           PPN1.sensory.inputs = as.character(PPN1.inputs.sensory$post_id),
-           vAB3.sensory.inputs = as.character(vAB3.inputs.sensory$post_id)),
+  x = list(PPN1.sensory.inputs = as.character(PPN1.inputs.sensory%>%pull(pre_id)),
+           vAB3.sensory.inputs = as.character(vAB3.inputs.sensory%>%pull(pre_id))),
   # Define the three sets
   filename = NULL,                 # No file output
-  fill = c("#FFC145", "#5B5F97", "#ADF7B6",'black'), # Colors for the circles
+  fill = c("#FFC145", "#5B5F97"), # Colors for the circles
   alpha = 0.5,                     # Transparency of the circles
   cex = 2,                         # Text size inside the circles
   cat.cex = 1.5,                   # Category label text size
