@@ -56,7 +56,7 @@ mAL.and.PPN1.not.vAB3.P1.inputs <- cf_partners(cf_ids(malecns=unique(mAL.and.PPN
 mAL.and.PPN1.and.vAB3.P1.inputs <- cf_partners(cf_ids(malecns=unique(mAL.and.PPN1.and.vAB3.P1.id)),partners='inputs',threshold = synapse_cutoff)
 
 #mAL to subtypes
-p1_subpop.ids <- mAL.and.PPN1.not.vAB3.P1.id #change this to the P1-mAL subset
+p1_subpop.ids <- vAB3.and.mAL.not.PPN1.P1.id #change this to the P1-mAL subset
 
 print(dim(vAB3.output.mAL.output.P1 %>% 
             filter(post_id %in% p1_subpop.ids))) #get shape to find synapse number
