@@ -27,6 +27,7 @@ P1.input.cf_partners <- cf_partners(cf_ids(malecns="/P1.+"), partners = 'in',thr
 vAB3.ids <- c('16302', '15645', '16535', '16830', '13693', '13341', '11998', '16747',  '512498', '524298', '14320', '922722')
 PPN1.ids <- c('520195', '13399', '17503', '21035', '17416', '18164','17492','520195','18430','18696','200336','801269','18324','18627')
 PPN1.ids <- cf_meta(cf_ids(malecns='AN05B102')) %>% pull(id) #Bella, Billy, Lisa
+PPN1.ids <-  c('11431', '12286') #new PPN1 decision
 VAB3.ids <- c('14320','922722','16747','524298') #Bella, Billy, Lisa
 
 #find subgroup of P1 outputs of PPN1 and vAB3
