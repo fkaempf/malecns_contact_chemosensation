@@ -144,14 +144,33 @@ downstream.type.lvl1 <- rbind(vAB3.downstream[[2]],PPN1.downstream[[2]])%>%
   pull(type)%>%
   unique()
 
+lvl1.output<-tb0 <- tibble(
+  type = character(),
+  weight = integer(),
+  frac_weight = double(),
+  group = logical()
+)
+
 for(t in downstream.type.lvl1){
   temp.ids <- mba %>%filter(type %in% c(t)) %>% pull(bodyid)
   if(length(temp.ids)==0){
     temp.ids <- mba %>%filter(flywire_type %in% c(t)) %>% pull(bodyid)
   }
-  bake.pie(temp.ids,name=paste(t,'lvl1','out'),other=T,connection.partners = 'o',threshold = 2)
+  a = bake.pie(temp.ids,name=paste(t,'lvl1','out'),other=T,connection.partners = 'o',threshold = 2)
+  lvl1.output = rbind(lvl1.output,a[[2]])
 }
 
+downstream.type.lvl2 <- lvl1.output%>%
+  filter(type!='other')%>%
+  pull(type)%>%
+  unique()
 
-
+for(t in downstream.type.lvl2){
+  temp.ids <- mba %>%filter(type %in% c(t)) %>% pull(bodyid)
+  if(length(temp.ids)==0){
+    temp.ids <- mba %>%filter(flywire_type %in% c(t)) %>% pull(bodyid)
+  }
+  a = bake.pie(temp.ids,name=paste(t,'lvl2','out'),other=T,connection.partners = 'o',threshold = 2)
+  lvl1.output = rbind(lvl1.output,a)
+}
 
