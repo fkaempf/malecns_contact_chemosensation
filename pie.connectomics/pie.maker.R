@@ -171,6 +171,6 @@ for(t in downstream.type.lvl2){
     temp.ids <- mba %>%filter(flywire_type %in% c(t)) %>% pull(bodyid)
   }
   a = bake.pie(temp.ids,name=paste(t,'lvl2','out'),other=T,connection.partners = 'o',threshold = 2)
-  lvl1.output = rbind(lvl1.output,a)
+  
 }
 
