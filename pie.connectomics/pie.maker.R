@@ -18,6 +18,7 @@ py_require(c("kaleido"))
 py_require(c("plotly"))
 synapse.threshold = 5
 mba<-mcns_body_annotations()
+mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
 mba <- mba %>%
   mutate(
@@ -124,7 +125,7 @@ bake.pie <- function(ids,
     displayModeBar = FALSE
   )
   
-  out_dir  <- file.path(getwd(), "pie.connectomics")
+  out_dir  <- file.path(getwd(), "pie.connectomics/imgs")
   outfile  <- file.path(out_dir, paste0(name, ".png"))
   saved_path <- save_image(fig, file = outfile, scale = 4,width=1000,height = 1000)
 
@@ -144,12 +145,15 @@ downstream.type.lvl1 <- rbind(vAB3.downstream[[2]],PPN1.downstream[[2]])%>%
   pull(type)%>%
   unique()
 
-lvl1.output<-tb0 <- tibble(
+lvl1.cfps<-tb0 <- tibble(
   type = character(),
   weight = integer(),
   frac_weight = double(),
-  group = logical()
+  group = logical(),
+  pre.type=character()
 )
+
+
 
 for(t in downstream.type.lvl1){
   temp.ids <- mba %>%filter(type %in% c(t)) %>% pull(bodyid)
@@ -157,7 +161,10 @@ for(t in downstream.type.lvl1){
     temp.ids <- mba %>%filter(flywire_type %in% c(t)) %>% pull(bodyid)
   }
   a = bake.pie(temp.ids,name=paste(t,'lvl1','out'),other=T,connection.partners = 'o',threshold = 2)
-  lvl1.output = rbind(lvl1.output,a[[2]])
+  a[[2]]$pre.type = t
+  lvl1.cfps<-rbind(lvl1.cfps,a[[2]])
+  
+  
 }
 
 downstream.type.lvl2 <- lvl1.output%>%
@@ -165,12 +172,26 @@ downstream.type.lvl2 <- lvl1.output%>%
   pull(type)%>%
   unique()
 
+lvl2.cfps <- empty_tbl <- tibble(
+  pre.type     = character(),    
+  type   = character(), 
+  weight  = integer(), 
+  frac_weight = double(),
+  group = logical()
+)
+
 for(t in downstream.type.lvl2){
   temp.ids <- mba %>%filter(type %in% c(t)) %>% pull(bodyid)
   if(length(temp.ids)==0){
     temp.ids <- mba %>%filter(flywire_type %in% c(t)) %>% pull(bodyid)
   }
+  if(length(temp.ids)==0){
+    temp.ids <- mba.static %>%filter(type %in% c(t)) %>% pull(bodyid)
+  }
+  
   a = bake.pie(temp.ids,name=paste(t,'lvl2','out'),other=T,connection.partners = 'o',threshold = 2)
+  a[[2]]$pre.type = t
+  lvl2.cfps<-rbind(lvl2.cfps,a[[2]])
   
 }
 
