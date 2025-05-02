@@ -42,6 +42,7 @@ knitr::opts_chunk$set(
 ```{r}
 synapse_threshold=5
 mba<-mcns_body_annotations()
+mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
 mba <- mba %>%
   mutate(
@@ -144,12 +145,15 @@ calculate_normed_adj_matrix <-function(connectivity,cell.or.type='type',pre.or.p
 ### 2.1 Create adjacency matrix
 ```{r}
 conn<-conn_save
-conn<- conn%>%mutate(pre_type=coalesce(pre_type,pre_fw_type),post_type=coalesce(post_type,post_fw_type))
+conn<- conn%>%
+  mutate(pre_type=coalesce(pre_type,pre_fw_type),post_type=coalesce(post_type,post_fw_type))%>%
+  mutate(pre_type=if_else(is.na(pre_type),as.character(bodyid),pre_type),
+         post_type=if_else(is.na(post_type),as.character(partner),post_type))
 
 
 
 
-nam <-calculate_normed_adj_matrix(conn,cell.or.type='cell',pre.or.post='post')
+nam <-calculate_normed_adj_matrix(conn,cell.or.type='type',pre.or.post='post')
 
 nam_thresholded <-nam
 
@@ -230,12 +234,27 @@ g.prout.mcns <- graph_from_adjacency_matrix(
 
 Targets
 ```{r}
-SAG
-P1
-TK
-pCd
-pMP2
-pIP10
+#starts
+start_types <- cf_partners(cf_ids(malecns = mba%>%
+                                   filter(type %in% c('AN05B102','AN09B017'))%>%
+                                   pull(bodyid)%>%
+                                   unique()),
+                          partners='i',threshold=5)%>%
+  filter(superclass=='vnc_sensory')%>%
+  filter(!is.na(type))%>%pull(type)%>%
+  unique()
+
+
+#targets
+SAG <- 'ANXXX150'
+P1 <- mba %>% filter(grepl("P1_",type))%>%pull(type)%>%unique()
+TK <- mba %>% filter(grepl("TK-FruM",synonyms))%>%pull(type)%>%unique()
+pCd <- mba %>% filter(grepl("pCd",synonyms))%>%pull(type)%>%unique()
+pMP2 <- 'pMP2'
+pIP10 <- 'pIP10'
+CL062 <- mba %>% filter(grepl("CL062",type))%>%pull(type)%>%unique()
+ 
+target_types <- c(SAG,P1,TK,pCd,pMP2,pIP10,CL062)
 ```
 
 
@@ -245,7 +264,7 @@ path finding new
 ```{r}
 
 # Define parameters for path search
-n_paths <- 3          # Number of strongest paths to find for each start-target pair
+n_paths <-  3         # Number of strongest paths to find for each start-target pair
 diversity <- 'otheredges'  # othernodes,otheredges,none
 
 # Your existing code
@@ -254,23 +273,15 @@ cell_types <- c('(JO-B)') #only JO-B
 
 cell_types <- c('f-cell','m-cell','AN09B017','AN05B102')
 #cell_types <- c('CB1542','CB1078')
+cell_types <- start_types
 
 target_cells <- c("vpoEN",'CB1385',"vpoEN",'CB1385')  # List of target cells
 target_cells <- c(target_cells,'pMP2')
 target_cells <- c(target_cells,mba%>% filter(grepl('aSP-k',synonyms))%>%filter(!is.na(type))%>%pull(type)%>%unique())
 target_cells <- c('pIP10','pMP2')
+target_cells <- target_types
 
-for (tc in target_cells){
-  for (lr in c('_L','_R','_NA')){
-    target_cells<-c(target_cells,paste0(tc,lr))
-    }
-}
 
-for (ct in cell_types){
-  for (lr in c('_L','_R','_NA')){
-    cell_types<-c(cell_types,paste0(ct,lr))
-    }
-}
 
 #target_cells <- c(target_cells,V(g.prout.mcns)$name[grepl("P1_", V(g.prout.mcns)$name)])
 #target_cells <- c(all.levels.prout.mcns.output%>%filter((post_type=='vpoEN')&(weight>=0.1))%>%pull(pre_type)%>%unique(),target_cells)
@@ -415,10 +426,10 @@ try(g.sub.prout.mcns <- delete_edges(g.sub.prout.mcns, edges_to_delete),silent=T
 
 
 node_names <- V(g.sub.prout.mcns)$name
-#distance_to_JO_B <- shortest.paths(g.sub.prout.mcns, to = V(g.sub.prout.mcns)[name == "(JO-B)_NA"], weights = NA)
-#distance_to_JO_B <- shortest.paths(g.sub.prout.mcns, to = V(g.sub.prout.mcns)[name == "(JO-B)"], weights = NA)
-V(g.sub.prout.mcns)$distance_to_JO_B <- ifelse(node_names == "(JO-B)_NA", 0, as.integer(distance_to_JO_B))
-V(g.sub.prout.mcns)$distance_to_JO_B <- ifelse(node_names == "(JO-B)", 0, as.integer(distance_to_JO_B))
+
+distance_to_start <- shortest.paths(g.sub.prout.mcns, to = V(g.sub.prout.mcns)[name %in% start_types], weights = NA)
+
+V(g.sub.prout.mcns)$distance_to_start <- ifelse(node_names %in% start_types, 0, as.integer(distance_to_start))
 
 try(fru_dsx_values <- conn %>%
     group_by(pre_type,post_type) %>%
@@ -453,7 +464,7 @@ nt_values <- conn %>%
 try(nt_for_vertices <- nt_values$nt[match(V(g.sub.prout.mcns)$name, nt_values$type)])
 try(fru_dsx_for_vertices <- fru_dsx_values$fru[match(V(g.sub.prout.mcns)$name, fru_dsx_values$type)])
 
-try(V(g.sub.prout.mcns)$nt <- nt_for_vertices)
+V(g.sub.prout.mcns)$nt <- nt_for_vertices
 try(V(g.sub.prout.mcns)$fru_dsx <- fru_dsx_for_vertices)
 
 el<- as_edgelist(g.sub.prout.mcns)
@@ -494,25 +505,131 @@ RCy3::createNetworkFromIgraph(g.sub.prout.mcns)
 
 
 ```
-Minimum graph
 ```{r}
-g.reduced <- simplify(
-  g.sub.prout.mcns,
-  remove.multiple = TRUE,
-  remove.loops = TRUE,
-  edge.attr.comb = list(pre_normed_weight = "max",
-                        level = "min",
-                        log_weight = "max",
-                        is_p1_p1 = "first",
-                        inv_weights = "min")  # Keep max weight if duplicates exist
+# 1. define which transmitters are excitatory vs inhibitory
+excitatory <- c("acetylcholine", "glutamate", "serotonin", "dopamine", "octopamine")
+inhibitory <- c("gaba")
+
+# 2. pull out the neurotransmitter and name vectors
+nt_vec     <- V(g.sub.prout.mcns)$nt
+name_vec   <- V(g.sub.prout.mcns)$name
+
+# 3. map each nt to +1/−1 (NA if unknown)
+mapped     <- ifelse(
+  nt_vec %in% excitatory,  1L,
+  ifelse(nt_vec %in% inhibitory, -1L, 1L)
 )
 
+# 4. give that numeric vector the vertex names
+names(mapped) <- name_vec
+```
 
 
-RCy3::createNetworkFromIgraph(g.reduced)
+Graph pass
+```{r}
+adj.reduced <- as.matrix(as_adjacency_matrix(g.sub.prout.mcns, attr = "weight"))
+
+
+nt <- mapped
+empty_na <- array(0,dim = dim(adj.reduced))
+
+
+
+
+#start
+t0 <- zero_list <- setNames(
+  as.numeric(rep(0, length(colnames(adj.reduced)))),
+  colnames(adj.reduced)
+)
+t0[names(t0) %in% start_types] = 1
+
+transmit0 = colSums(adj.reduced[names(t0[t0!=0]),]*nt[names(t0[t0!=0])])
+
+t1 <- t0 + transmit0
+t1[t1 %in% start_types] = 0
+
+#step1
+t1[names(t1) %in% start_types] = 1
+
+transmit1 = colSums(adj.reduced[names(t1[t1!=0]),]*nt[names(t1[t1!=0])])
+
+t2 <- t1 + transmit1
+t2[t2 %in% start_types] = 0
+
+
+#step2
+t2[names(t2) %in% start_types] = 1
+
+transmit2 = colSums(adj.reduced[names(t2[t2!=0]),]*nt[names(t2[t2!=0])])
+
+t3 <- t2 + transmit2
 
 
 ```
+
+code function
+```{r}
+simulate <- function(g, start,epochs=100,stim_epochs=5){
+  
+  
+}
+
+
+excitatory <- c("acetylcholine", "glutamate", "serotonin", "dopamine", "octopamine")
+inhibitory <- c("gaba")
+
+# 2. pull out the neurotransmitter and name vectors
+nt_vec     <- V(g)$nt
+name_vec   <- V(g)$name
+
+# 3. map each nt to +1/−1 (NA if unknown)
+mapped     <- ifelse(
+  nt_vec %in% excitatory,  1L,
+  ifelse(nt_vec %in% inhibitory, -1L, 1L)
+)
+
+# 4. give that numeric vector the vertex names
+names(mapped) <- name_vec
+
+adj.reduced <- as.matrix(as_adjacency_matrix(g, attr = "weight"))
+t0 <- data.frame(
+    setNames(
+        as.list(rep(0, ncol(adj.reduced))),
+        colnames(adj.reduced)
+    ),
+    check.names = FALSE
+)
+epochs=100
+for (i in seq(1,epochs)){
+if (i<=5){
+t0[i,colnames(t0) %in% start] = 0.1}
+transmit0 = colSums(adj.reduced[colnames(t0[i,t0[i,]!=0]),] * nt[colnames(t0[i,t0[i,]!=0])])
+next_step <- (t0[i,]*0.8-0.1)+t(data.frame(transmit0))
+t0<-rbind(t0,next_step)
+rownames(t0)<-seq(1,dim(t0)[1])}
+pheatmap(t(t0),
+         cluster_rows=T,
+         cluster_cols = F,  
+         fontsize_row   = 4,
+         fontsize_col   = 6,  
+         cellheight     = 4,      # default ~10
+         cellwidth      = 4)
+matplot(
+    series,
+    type = "l",
+    lty  = 1,
+    xaxt = "n",
+    xlab = "Timestep",
+    ylab = "Value"
+)
+series <- as.matrix(t0[ , setdiff(names(t0), "time")])
+axis(1, at = 1:nrow(series), labels = 1:nrow(series))
+```
+
+
+
+
+
 
 
 
