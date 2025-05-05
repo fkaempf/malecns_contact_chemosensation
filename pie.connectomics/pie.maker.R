@@ -18,7 +18,8 @@ py_require(c("kaleido"))
 py_require(c("plotly"))
 synapse.threshold = 5
 mba<-mcns_body_annotations()
-mba.static<-mcns_body_annotations()
+mba.static<-mcns_body_annotations()%>%  
+  mutate(type = str_remove_all(as.character(type), "[()]"))
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
 mba <- mba %>%
   mutate(
@@ -135,12 +136,26 @@ bake.pie <- function(ids,
 
 }
 
-bake.pie(vAB3.ids,name='vAB3 in',other=T,connection.partners = 'i',threshold = 2)
-bake.pie(PPN1.ids,name='PPN1 in',other=T,connection.partners = 'i',threshold = 2)
+vAB3.upstream = bake.pie(vAB3.ids,name='vAB3 in',other=T,connection.partners = 'i',threshold = 2)
+PPN1.upstream = bake.pie(PPN1.ids,name='PPN1 in',other=T,connection.partners = 'i',threshold = 2)
 vAB3.downstream = bake.pie(vAB3.ids,name='vAB3 out',other=T,connection.partners = 'o',threshold = 2)
-PPN1.downstream = bake.pie(PPN1.ids,name='PPN1 out',other=T,connection.partners = 'o',threshold = 2)
+PPN1.downstream = bake.pie(PPN1.ids,name='PPN1 out',other=T,connection.partners = 'o',threshold = 1)
+PPN1.downstream[[2]]$pre.type = PPN1.types
+vAB3.downstream[[2]]$pre.type = vAB3.types
+PPN1.downstream[[2]]$lvl = 0
+vAB3.downstream[[2]]$lvl = 0
+PPN1.upstream[[2]]$lvl = -1
+vAB3.upstream[[2]]$lvl = -1
+vAB3.upstream[[2]]<-vAB3.upstream[[2]]%>%
+  rename(pre.type=type)%>%
+  mutate(type=vAB3.types)
+PPN1.upstream[[2]]<-PPN1.upstream[[2]]%>%
+  rename(pre.type=type)%>%
+  mutate(type=PPN1.types)
 
-downstream.type.lvl1 <- rbind(vAB3.downstream[[2]],PPN1.downstream[[2]])%>%
+
+#downstream.type.lvl1 <- rbind(vAB3.downstream[[2]])%>% #,PPN1.downstream[[2]]
+downstream.type.lvl1 <- rbind(PPN1.downstream[[2]])%>%
   filter(type!='other')%>%
   pull(type)%>%
   unique()
@@ -162,12 +177,14 @@ for(t in downstream.type.lvl1){
   }
   a = bake.pie(temp.ids,name=paste(t,'lvl1','out'),other=T,connection.partners = 'o',threshold = 2)
   a[[2]]$pre.type = t
+  a[[2]]$lvl = 1
+
   lvl1.cfps<-rbind(lvl1.cfps,a[[2]])
   
   
 }
 
-downstream.type.lvl2 <- lvl1.output%>%
+downstream.type.lvl2 <- lvl1.cfps%>%
   filter(type!='other')%>%
   pull(type)%>%
   unique()
@@ -189,9 +206,92 @@ for(t in downstream.type.lvl2){
     temp.ids <- mba.static %>%filter(type %in% c(t)) %>% pull(bodyid)
   }
   
-  a = bake.pie(temp.ids,name=paste(t,'lvl2','out'),other=T,connection.partners = 'o',threshold = 2)
+  a = bake.pie(temp.ids,name=paste(t,'lvl2','out'),other=T,connection.partners = 'o',threshold = 5)
   a[[2]]$pre.type = t
+  a[[2]]$lvl = 2
   lvl2.cfps<-rbind(lvl2.cfps,a[[2]])
   
 }
+
+
+#all.cfps <- rbind(vAB3.upstream[[2]],PPN1.upstream[[2]],vAB3.downstream[[2]],PPN1.downstream[[2]],lvl1.cfps,lvl2.cfps)%>%
+#all.cfps <- rbind(vAB3.upstream[[2]],vAB3.downstream[[2]],lvl1.cfps,lvl2.cfps)%>%
+all.cfps <- rbind(PPN1.upstream[[2]],PPN1.downstream[[2]],lvl1.cfps,lvl2.cfps)%>%
+  filter(!type=='other',!pre.type=='other')%>%
+  rename(from=pre.type,to=type)%>%
+  select(-group)%>%
+  distinct()%>%
+  group_by(from, to, weight, frac_weight) %>%
+  slice_min(order_by = lvl, with_ties = FALSE) %>%
+  ungroup()
+
+nt <- mba.static %>%
+  mutate(nt=coalesce(consensus_nt,predicted_nt,celltype_predicted_nt))%>%
+  group_by(type, nt) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  filter(!is.na(nt)) %>%           # Remove NA before ranking
+  group_by(type) %>%
+  slice_max(order_by = count, n = 1, with_ties = FALSE) %>%  # Take the most frequent (tie-breaking arbitrarily)
+  right_join(mba.static %>% distinct(type), by = "type") %>%         # Ensure all types included
+  mutate(nt = ifelse(is.na(nt), NA, nt))%>%
+  mutate(if_else(is.na(nt),'unclear',nt))
+
+nt.fw <- mba.static %>%
+  mutate(nt=coalesce(consensus_nt,predicted_nt,celltype_predicted_nt))%>%
+  group_by(flywire_type, nt) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  filter(!is.na(nt)) %>%           # Remove NA before ranking
+  group_by(flywire_type) %>%
+  slice_max(order_by = count, n = 1, with_ties = FALSE) %>%  # Take the most frequent (tie-breaking arbitrarily)
+  right_join(mba.static %>% distinct(flywire_type), by = "flywire_type") %>%         # Ensure all types included
+  mutate(nt = ifelse(is.na(nt), NA, nt))%>%
+  mutate(if_else(is.na(nt),'unclear',nt))
+
+
+
+
+g<- graph_from_data_frame(d = all.cfps%>%select(from,to), directed = TRUE, vertices = NULL)
+E(g)$frac_weight <- all.cfps$frac_weight
+E(g)$weight <- all.cfps$weight
+
+nt.map <- setNames(nt$nt, nt$type)
+V(g)$neurotransmitter <- nt.map[V(g)$name]
+
+nt.map.fw <- setNames(nt.fw$nt, nt.fw$flywire_type)
+na.idx <- which(is.na(V(g)$neurotransmitter))
+V(g)$neurotransmitter[na.idx] <- nt.map.fw[V(g)$name[na.idx]]
+
+lvl <-all.cfps%>%group_by(from)%>%summarize(lvl=first(lvl))
+lvl.map <- setNames(lvl$lvl, lvl$from)
+V(g)$lvl <- lvl.map[V(g)$name]
+na.idx <- which(is.na(V(g)$lvl))
+repeat {
+  na.idx <- which(is.na(V(g)$lvl))
+  if (length(na.idx) == 0) break  # all done
+  
+  updated <- FALSE  # flag to track if we update anything this round
+  
+  for (v in na.idx) {
+    incoming <- neighbors(g, v, mode = "in")
+    parent_lvls <- V(g)$lvl[incoming]
+    
+    if (any(!is.na(parent_lvls))) {
+      V(g)$lvl[v] <- min(parent_lvls, na.rm = TRUE) + 1
+      updated <- TRUE
+    }
+  }
+  
+  if (!updated) break  # stop if no more progress is possible
+}
+edge_ends <- ends(g, E(g), names = FALSE)
+
+# Extract levels of start and end nodes
+from_lvls <- V(g)$lvl[edge_ends[, 1]]
+to_lvls   <- V(g)$lvl[edge_ends[, 2]]
+
+# Assign delta level to each edge
+E(g)$delta_lvl <- to_lvls - from_lvls
+
+RCy3::createNetworkFromIgraph(g)
+
 
