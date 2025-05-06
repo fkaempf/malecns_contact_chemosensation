@@ -18,7 +18,7 @@ library(ggplot2)
 library(reshape2)
 library(Matrix)
 
-conn = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
+conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
 mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.8')
 neuprint_get_synapses(13693,roi='VNC')
 ```
@@ -254,7 +254,7 @@ pMP2 <- 'pMP2'
 pIP10 <- 'pIP10'
 CL062 <- mba %>% filter(grepl("CL062",type))%>%pull(type)%>%unique()
  
-target_types <- c(SAG,P1,TK,pCd,pMP2,pIP10,CL062)
+target_types <- c(P1,TK,pCd,pMP2,pIP10)
 ```
 
 
@@ -264,7 +264,7 @@ path finding new
 ```{r}
 
 # Define parameters for path search
-n_paths <-  3         # Number of strongest paths to find for each start-target pair
+n_paths <-  1       # Number of strongest paths to find for each start-target pair
 diversity <- 'otheredges'  # othernodes,otheredges,none
 
 # Your existing code
@@ -406,11 +406,11 @@ nodes_to_keep <- c(nodes_to_keep,unique(all_important_nodes))
 nodes_to_keep <-unique(all_important_nodes)
 
 #add P1 only to neurons which would be in the graph anyway
-P1_2_add <- conn%>%
-  filter(pre_type %in% nodes_to_keep,
-         grepl("^P1_", post_type))%>%
-  pull(post_type)%>%
-  unique()
+#P1_2_add <- conn%>%
+#  filter(pre_type %in% nodes_to_keep,
+#         grepl("^P1_", post_type))%>%
+#  pull(post_type)%>%
+#  unique()
 
 #nodes_to_keep<-c(nodes_to_keep,P1_2_add)
 
@@ -499,7 +499,7 @@ rename_dict <- list(
 V(g.sub.prout.mcns)$name <- sapply(V(g.sub.prout.mcns)$name, function(x) ifelse(x %in% names(rename_dict), rename_dict[[x]], x))
 
 
-
+E(g.sub.prout.mcns)$weight<-E(g.sub.prout.mcns)$weight*100
 
 RCy3::createNetworkFromIgraph(g.sub.prout.mcns)
 
