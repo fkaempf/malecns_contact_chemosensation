@@ -357,6 +357,18 @@ in_out_scores_mean_id_ipsi_m <- as.matrix(in_out_scores_mean_id_ipsi_m[, -1])
 in_out_scores_mean_id_ipsi_m[is.na(in_out_scores_mean_id_ipsi_m)]=0
 clust <- hclust(dist(t(in_out_scores_mean_ipsi_m)))
 clust_id <- hclust(dist(t(in_out_scores_mean_id_ipsi_m)))
+
+
+#normed
+in_out_scores_mean_ipsi_m_norm_zscore <- apply(in_out_scores_mean_ipsi_m, 2, function(x) {
+  (x - min(x, na.rm=TRUE)) / (max(x, na.rm=TRUE) - min(x, na.rm=TRUE))
+})
+dimnames(in_out_scores_mean_ipsi_m_norm_zscore) <- dimnames(in_out_scores_mean_ipsi_m)
+in_out_scores_mean_ipsi_m_norm_zscore     <- scale(in_out_scores_mean_ipsi_m, center = TRUE, scale = TRUE)
+in_out_scores_mean_ipsi_m_norm_byrow <- in_out_scores_mean_ipsi_m / apply(in_out_scores_mean_ipsi_m, 1, max)
+clust <- hclust(dist(t(in_out_scores_mean_ipsi_m_norm_zscore)))
+
+
 my_cols_fun <- colorRampPalette(c("purple","orange",'green'))
 ```
 
@@ -409,13 +421,14 @@ library(ggplot2)
 clust <- hclust(dist(t(in_out_scores_mean_ipsi_m)))
 
 
-in_out_scores_mean_ipsi_m_norm <- apply(in_out_scores_mean_ipsi_m, 2, function(x) {
+in_out_scores_mean_ipsi_m_norm_zscore <- apply(in_out_scores_mean_ipsi_m, 2, function(x) {
   (x - min(x, na.rm=TRUE)) / (max(x, na.rm=TRUE) - min(x, na.rm=TRUE))
 })
 # preserve dimnames
-dimnames(in_out_scores_mean_ipsi_m_norm) <- dimnames(in_out_scores_mean_ipsi_m)
-in_out_scores_mean_ipsi_m_norm     <- scale(in_out_scores_mean_ipsi_m, center = TRUE, scale = TRUE)
-clust <- hclust(dist(t(in_out_scores_mean_ipsi_m_norm)))
+dimnames(in_out_scores_mean_ipsi_m_norm_zscore) <- dimnames(in_out_scores_mean_ipsi_m)
+in_out_scores_mean_ipsi_m_norm_zscore     <- scale(in_out_scores_mean_ipsi_m, center = TRUE, scale = TRUE)
+in_out_scores_mean_ipsi_m_norm_byrow <- in_out_scores_mean_ipsi_m / apply(in_out_scores_mean_ipsi_m, 1, max)
+clust <- hclust(dist(t(in_out_scores_mean_ipsi_m)))
 
 
 # 2. extract dendrogram data
