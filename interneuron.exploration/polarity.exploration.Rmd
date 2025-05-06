@@ -1,0 +1,466 @@
+---
+title: "polarity.exploration"
+output: html_document
+---
+
+```{r}
+library(malecns)
+library(coconatfly)
+library(fafbseg)
+library(neuprintr)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(plotly)
+library(stringr)
+library(igraph)
+library(tidygraph)
+library(ggraph)
+library(jsonlite)
+library(ggplot2)
+library(reshape2)
+library(Matrix)
+library(patchwork)
+library(plotly)
+```
+
+
+
+## 1 Load data
+
+### 1.1 Load male boday annotations
+```{r}
+synapse_threshold=5
+mba<-mcns_body_annotations()
+mba.static<-mcns_body_annotations()
+mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
+mba <- mba %>%
+  mutate(
+    type = case_when(
+      grepl("putative_ppk23", receptor_type) ~ "m-cell",
+      grepl("putative_ppk25", receptor_type) ~ "f-cell",
+      TRUE ~ type
+    )
+  )
+```
+## 1.2 Get neuprint connection
+```{r}
+conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
+mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.8')
+```
+
+
+## 2 Analyze polarity
+### 2.1.1 IN05B002 get IDs
+```{r}
+IN05B002.ids <- mba%>%filter(type=='IN05B002')%>%pull(bodyid)
+IN05B002.synapses <- list(neuprint_get_synapses(IN05B002.ids[[1]],roi='VNC'),
+                       neuprint_get_synapses(IN05B002.ids[[2]],roi='VNC'))
+IN05B002.synapses[[1]]$prepost<- as.factor(IN05B002.synapses[[1]]$prepost)
+IN05B002.synapses[[2]]$prepost<- as.factor(IN05B002.synapses[[2]]$prepost)
+
+IN05B002.synapses.all <- neuprint_get_synapses(IN05B002.ids)%>%mutate(prepost=ifelse(prepost==1,'input','output'))
+mcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23")) %>%
+    pull(bodyid)
+mcell.legbristle.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23"),subclass=='leg bristle') %>%
+    pull(bodyid)
+IN05B002.synapses.all<-IN05B002.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% mcell.ids),'m-input',prepost))
+
+
+fcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25")) %>%
+    pull(bodyid)
+fcell.legbristle.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25"),subclass=='leg bristle') %>%
+    pull(bodyid)
+IN05B002.synapses.all<-IN05B002.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% fcell.ids),'f-input',prepost))
+
+```
+### 2.1.2 INO5B002 kmeans clustering
+```{r}
+set.seed(42)  # for reproducibility
+IN05B002.synapses[[1]]$cluster <- kmeans(IN05B002.synapses[[1]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+IN05B002.synapses[[2]]$cluster <- kmeans(IN05B002.synapses[[2]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+
+```
+### 2.1.3 IN05B002 viz
+```{r}
+p1 <- ggplot(IN05B002.synapses[[1]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 1, alpha = 0.01) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B002.ids[1]) %>% pull(type), ": ", IN05B002.ids[1])) +
+  theme_minimal()
+
+# Second plot
+p2 <- ggplot(IN05B002.synapses[[2]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 1, alpha = 0.01) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B002.ids[2]) %>% pull(type), ": ", IN05B002.ids[2])) +
+  theme_minimal()
+
+# Combine the two plots side by side
+p1 + p2
+```
+### 2.1.4 IN05B002 3D viz
+```{r}
+
+plot_ly(
+  data = IN05B002.synapses.all,
+  x = ~x,
+  y = ~z,
+  z = ~-y,
+  color = ~prepost,
+  colors = c("yellow","red","green", "blue"),
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 1)
+)%>%
+  layout(
+    scene = list(
+      aspectmode = "data"  # ensures equal scaling across x, y, z
+    )
+  )
+```
+
+### 2.1.5 Asymetry and F input
+```{r}
+print(IN05B002.synapses.all%>%group_by(prepost)%>%summarize(weight=n()))
+```
+
+
+
+### 2.2.1 vAB3 get IDs
+```{r}
+AN09B017.ids <- mba%>%filter(type=='AN09B017')%>%pull(bodyid)
+AN09B017.synapses <- list(neuprint_get_synapses(AN09B017.ids[[1]]),
+                       neuprint_get_synapses(AN09B017.ids[[2]]),
+                       neuprint_get_synapses(AN09B017.ids[[3]]),
+                       neuprint_get_synapses(AN09B017.ids[[4]]))
+AN09B017.synapses[[1]]$prepost<- as.factor(AN09B017.synapses[[1]]$prepost)
+AN09B017.synapses[[2]]$prepost<- as.factor(AN09B017.synapses[[2]]$prepost)
+AN09B017.synapses[[3]]$prepost<- as.factor(AN09B017.synapses[[3]]$prepost)
+AN09B017.synapses[[4]]$prepost<- as.factor(AN09B017.synapses[[4]]$prepost)
+AN09B017.synapses.all <- neuprint_get_synapses(AN09B017.ids)%>%mutate(prepost=ifelse(prepost==1,'input','output'))
+mcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23")) %>%
+    pull(bodyid)
+AN09B017.synapses.all<-AN09B017.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% mcell.ids),'m-input',prepost))
+
+fcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25")) %>%
+    pull(bodyid)
+AN09B017.synapses.all<-AN09B017.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% fcell.ids),'f-input',prepost))
+
+```
+### 2.2.2 vAB3 kmeans clustering
+```{r}
+set.seed(42)  # for reproducibility
+AN09B017.synapses[[1]]$cluster <- kmeans(AN09B017.synapses[[1]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+AN09B017.synapses[[2]]$cluster <- kmeans(AN09B017.synapses[[2]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+AN09B017.synapses[[3]]$cluster <- kmeans(AN09B017.synapses[[3]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+AN09B017.synapses[[4]]$cluster <- kmeans(AN09B017.synapses[[4]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+```
+### 2.2.3 vAB3 viz
+```{r}
+p1.xz <- ggplot(AN09B017.synapses[[4]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[4]) %>% pull(type), ": ", AN09B017.ids[4])) +
+  theme_minimal()
+p1.xy <- ggplot(AN09B017.synapses[[4]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[4]) %>% pull(type), ": ", AN09B017.ids[4])) +
+  theme_minimal()
+
+# Second plot
+p2.xz <- ggplot(AN09B017.synapses[[2]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[2]) %>% pull(type), ": ", AN09B017.ids[2])) +
+  theme_minimal()
+
+p2.xy <- ggplot(AN09B017.synapses[[2]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[2]) %>% pull(type), ": ", AN09B017.ids[2])) +
+  theme_minimal()
+# Combine the two plots side by side
+(p1.xy+p2.xy)/(p1.xz+p2.xz)
+```
+### 2.2.4 vAB3 3D viz
+```{r}
+
+plot_ly(
+  data = AN09B017.synapses.all,
+  x = ~x,
+  y = ~z,
+  z = ~-y,
+  color = ~prepost,
+  colors = c("yellow","red","green", "blue"),
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 1)
+)%>%
+  layout(
+    scene = list(
+      aspectmode = "data"  # ensures equal scaling across x, y, z
+    )
+  )
+```
+### 2.1.5 vAB3 Asymetry and F input
+```{r}
+print(AN09B017.synapses.all%>%group_by(prepost)%>%summarize(weight=n(),weight.normed=n()/length(AN09B017.ids)))
+```
+
+### 2.3.1 AN05B102 get IDs
+```{r}
+AN05B102.ids <- mba%>%filter(type=='AN05B102')%>%pull(bodyid)
+AN05B102.synapses <- list(neuprint_get_synapses(AN05B102.ids[[1]]),
+                       neuprint_get_synapses(AN05B102.ids[[2]]),
+                       neuprint_get_synapses(AN05B102.ids[[3]]),
+                       neuprint_get_synapses(AN05B102.ids[[4]]))
+AN05B102.synapses[[1]]$prepost<- as.factor(AN05B102.synapses[[1]]$prepost)
+AN05B102.synapses[[2]]$prepost<- as.factor(AN05B102.synapses[[2]]$prepost)
+AN05B102.synapses[[3]]$prepost<- as.factor(AN05B102.synapses[[3]]$prepost)
+AN05B102.synapses[[4]]$prepost<- as.factor(AN05B102.synapses[[4]]$prepost)
+AN05B102.synapses.all <- neuprint_get_synapses(AN05B102.ids)%>%mutate(prepost=ifelse(prepost==1,'input','output'))
+mcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23")) %>%
+    pull(bodyid)
+AN05B102.synapses.all<-AN05B102.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% mcell.ids),'m-input',prepost))
+
+fcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25")) %>%
+    pull(bodyid)
+AN05B102.synapses.all<-AN05B102.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% fcell.ids),'f-input',prepost))
+
+```
+### 2.3.2 AN05B102 kmeans clustering
+```{r}
+set.seed(42)  # for reproducibility
+AN05B102.synapses[[1]]$cluster <- kmeans(AN05B102.synapses[[1]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+AN05B102.synapses[[2]]$cluster <- kmeans(AN05B102.synapses[[2]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+AN05B102.synapses[[3]]$cluster <- kmeans(AN05B102.synapses[[3]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+AN05B102.synapses[[4]]$cluster <- kmeans(AN05B102.synapses[[4]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
+```
+### 2.3.3 AN05B102 viz
+```{r}
+p1.xz <- ggplot(AN05B102.synapses[[4]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[4]) %>% pull(type), ": ", AN05B102.ids[4])) +
+  theme_minimal()
+p1.xy <- ggplot(AN05B102.synapses[[4]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[4]) %>% pull(type), ": ", AN05B102.ids[4])) +
+  theme_minimal()
+
+# Second plot
+p2.xz <- ggplot(AN05B102.synapses[[2]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[2]) %>% pull(type), ": ", AN05B102.ids[2])) +
+  theme_minimal()
+
+p2.xy <- ggplot(AN05B102.synapses[[2]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.5) +
+  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[2]) %>% pull(type), ": ", AN05B102.ids[2])) +
+  theme_minimal()
+# Combine the two plots side by side
+(p1.xy+p2.xy)/(p1.xz+p2.xz)
+```
+### 2.3.4 AN05B102 3D viz
+```{r}
+
+plot_ly(
+  data = AN05B102.synapses.all,
+  x = ~x,
+  y = ~z,
+  z = ~-y,
+  color = ~prepost,
+  colors = c("yellow","red","green", "blue"),
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 1)
+)%>%
+  layout(
+    scene = list(
+      aspectmode = "data"  # ensures equal scaling across x, y, z
+    )
+  )
+```
+### 2.1.5 PPN1 Asymetry and F input
+```{r}
+print(AN05B102.synapses.all%>%group_by(prepost)%>%summarize(weight=n(),weight.normed=n()/length(AN05B102.ids)))
+```
+### 2.2.1 See how Interneuron goes on vAB3 and PPN1
+```{r}
+print(AN05B102.synapses.all%>%
+        filter(partner%in%IN05B002.ids)%>%
+        group_by(prepost)%>%summarize(weight=n(),weight.normed=n()/length(AN05B102.ids)))
+print(AN09B017.synapses.all%>%
+        filter(partner%in%IN05B002.ids)%>%
+        group_by(prepost)%>%summarize(weight=n(),weight.normed=n()/length(AN09B017.ids)))
+```
+### 2.2.2 See how relationship all postsynaptic m and f cells in bristle
+
+```{r}
+mcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23")) %>%
+    pull(bodyid)
+
+mcell.legbristle.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23"),subclass=='leg bristle') %>%
+    pull(bodyid)
+IN05B002.synapses.all<-IN05B002.synapses.all%>%mutate(prepost=if_else((prepost=='input')&(partner %in% mcell.ids),'m-input',prepost))
+
+
+fcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25")) %>%
+    pull(bodyid)
+fcell.legbristle.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25"),subclass=='leg bristle') %>%
+    pull(bodyid)
+
+cfps.mcell.out <- cf_partner_summary(cf_ids(malecns = mcell.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='mcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='mcell')
+cfps.mcell.bristle.out <- cf_partner_summary(cf_ids(malecns = mcell.legbristle.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='mcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='mcell')
+cfps.fcell.out <- cf_partner_summary(cf_ids(malecns = fcell.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='fcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='fcell')
+cfps.fcell.bristle.out <- cf_partner_summary(cf_ids(malecns = fcell.legbristle.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='fcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='fcell')
+```
+
+```{r}
+cfps.fused.out <-  rbind(cfps.fcell.out,cfps.mcell.out)%>%
+    select(-npost)%>%
+    pivot_wider(
+        names_from = type.pre,
+        values_from = c(weight, normed.weight),
+        values_fn = list(weight = mean, normed.weight = mean),  # or other summaries
+        values_fill = 0
+    )
+
+cfps.fused.bristle.out <-  rbind(cfps.fcell.bristle.out,cfps.mcell.bristle.out)%>%
+    select(-npost)%>%
+    pivot_wider(
+        names_from = type.pre,
+        values_from = c(weight, normed.weight),
+        values_fn = list(weight = mean, normed.weight = mean),  # or other summaries
+        values_fill = 0
+    )
+
+
+
+#1
+p1 <- ggplot(cfps.fused.bristle.out, aes(x = weight_fcell, y = weight_mcell, label = type.post)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  coord_fixed() +
+  labs(
+    title = "Weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p1, tooltip = "label")
+
+#2
+p2 <- ggplot(cfps.fused.bristle.out, aes(x = normed.weight_fcell, y = normed.weight_mcell, label = type.post)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  coord_fixed() +
+  labs(
+    title = "Normed weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p2, tooltip = "label")
+
+
+#3
+p3 <- ggplot(cfps.fused.out, aes(x = weight_fcell, y = weight_mcell, label = type.post)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  coord_fixed() +
+  labs(
+    title = "Weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p3, tooltip = "label")
+
+#4
+p4 <- ggplot(cfps.fused.out, aes(x = normed.weight_fcell, y = normed.weight_mcell, label = type.post)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  coord_fixed() +
+  labs(
+    title = "Normed weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p4, tooltip = "label")
+
+
+
+
+
+
+```
+
+
