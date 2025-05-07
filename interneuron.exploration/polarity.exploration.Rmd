@@ -35,14 +35,7 @@ synapse_threshold=5
 mba<-mcns_body_annotations()
 mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
-mba <- mba %>%
-  mutate(
-    type = case_when(
-      grepl("putative_ppk23", receptor_type) ~ "m-cell",
-      grepl("putative_ppk25", receptor_type) ~ "f-cell",
-      TRUE ~ type
-    )
-  )
+
 ```
 ## 1.2 Get neuprint connection
 ```{r}
@@ -386,8 +379,24 @@ cfps.fused.out <-  rbind(cfps.fcell.out,cfps.mcell.out)%>%
         values_from = c(weight, normed.weight),
         values_fn = list(weight = mean, normed.weight = mean),  # or other summaries
         values_fill = 0
-    )
+    )%>%
+  filter(!is.na(type.post))
 
+post.nt<-mba%>%filter(type %in% cfps.fused.out$type.post)%>%select(type,consensus_nt)%>%distinct()
+cfps.fused.out<-cfps.fused.out%>%left_join(post.nt,by=c('type.post'='type'))
+post.all.in <- cf_partner_summary(cf_ids(malecns=mba%>%
+                                           filter(type %in% cfps.fused.out$type.post)%>%
+                                           pull(bodyid)),
+                                  partners = 'i',threshold=5)%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight))
+
+cfps.fused.out.syn.normed <- cfps.fused.out %>%left_join(post.all.in,by='type.post')%>%
+  mutate(post.normed.weight_mcell=weight_mcell/weight,
+         post.normed.weight_fcell=weight_fcell/weight)
+
+
+#bristle
 cfps.fused.bristle.out <-  rbind(cfps.fcell.bristle.out,cfps.mcell.bristle.out)%>%
     select(-npost)%>%
     pivot_wider(
@@ -395,15 +404,41 @@ cfps.fused.bristle.out <-  rbind(cfps.fcell.bristle.out,cfps.mcell.bristle.out)%
         values_from = c(weight, normed.weight),
         values_fn = list(weight = mean, normed.weight = mean),  # or other summaries
         values_fill = 0
-    )
+    )%>%
+  filter(!is.na(type.post))
+
+britsle.post.nt<-mba%>%filter(type %in% cfps.fused.bristle.out$type.post)%>%select(type,consensus_nt)%>%distinct()
+cfps.fused.bristle.out<-cfps.fused.bristle.out%>%left_join(britsle.post.nt,by=c('type.post'='type'))
 
 
+post.all.in.bristle <- cf_partner_summary(cf_ids(malecns=mba%>%
+                                           filter(type %in% cfps.fused.bristle.out$type.post)%>%
+                                           pull(bodyid)),
+                                  partners = 'i',threshold=5)%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight))
+
+
+
+cfps.fused.bristle.out.syn.normed <- cfps.fused.bristle.out %>%left_join(post.all.in.bristle,by='type.post')%>%
+  mutate(post.normed.weight_mcell=weight_mcell/weight,
+         post.normed.weight_fcell=weight_fcell/weight)
+```
+
+
+```{r}
 
 #1
-p1 <- ggplot(cfps.fused.bristle.out, aes(x = weight_fcell, y = weight_mcell, label = type.post)) +
+p1 <- ggplot(cfps.fused.bristle.out, aes(x = weight_fcell, y = weight_mcell, label = type.post,color = consensus_nt)) +
   geom_point(size = 1, alpha = 0.7) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
-  coord_fixed() +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
   labs(
     title = "Weight bristle.fcell vs. bristle.mcell",
     x = "Weight (fcell)",
@@ -414,10 +449,16 @@ p1 <- ggplot(cfps.fused.bristle.out, aes(x = weight_fcell, y = weight_mcell, lab
 ggplotly(p1, tooltip = "label")
 
 #2
-p2 <- ggplot(cfps.fused.bristle.out, aes(x = normed.weight_fcell, y = normed.weight_mcell, label = type.post)) +
+p2 <- ggplot(cfps.fused.bristle.out, aes(x = normed.weight_fcell, y = normed.weight_mcell, label = type.post,color = consensus_nt)) +
   geom_point(size = 1, alpha = 0.7) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
-  coord_fixed() +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
   labs(
     title = "Normed weight bristle.fcell vs. bristle.mcell",
     x = "Weight (fcell)",
@@ -427,12 +468,38 @@ p2 <- ggplot(cfps.fused.bristle.out, aes(x = normed.weight_fcell, y = normed.wei
 
 ggplotly(p2, tooltip = "label")
 
-
-#3
-p3 <- ggplot(cfps.fused.out, aes(x = weight_fcell, y = weight_mcell, label = type.post)) +
+#5
+p5 <- ggplot(cfps.fused.bristle.out.syn.normed, aes(x = post.normed.weight_fcell, y = post.normed.weight_mcell, label = type.post,color = consensus_nt)) +
   geom_point(size = 1, alpha = 0.7) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
-  coord_fixed() +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed by total in syn of post cell weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p5, tooltip = "label")
+
+
+#3
+p3 <- ggplot(cfps.fused.out, aes(x = weight_fcell, y = weight_mcell, label = type.post,color = consensus_nt)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
   labs(
     title = "Weight fcell vs. mcell",
     x = "Weight (fcell)",
@@ -443,10 +510,16 @@ p3 <- ggplot(cfps.fused.out, aes(x = weight_fcell, y = weight_mcell, label = typ
 ggplotly(p3, tooltip = "label")
 
 #4
-p4 <- ggplot(cfps.fused.out, aes(x = normed.weight_fcell, y = normed.weight_mcell, label = type.post)) +
+p4 <- ggplot(cfps.fused.out, aes(x = normed.weight_fcell, y = normed.weight_mcell, label = type.post,color = consensus_nt)) +
   geom_point(size = 1, alpha = 0.7) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
-  coord_fixed() +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
   labs(
     title = "Normed weight fcell vs. mcell",
     x = "Weight (fcell)",
@@ -455,6 +528,28 @@ p4 <- ggplot(cfps.fused.out, aes(x = normed.weight_fcell, y = normed.weight_mcel
   theme_minimal()
 
 ggplotly(p4, tooltip = "label")
+
+
+
+#6
+p6 <- ggplot(cfps.fused.out.syn.normed, aes(x = post.normed.weight_fcell, y = post.normed.weight_mcell, label = type.post,color = consensus_nt)) +
+  geom_point(size = 1, alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+    scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed by total in syn of post cell weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p6, tooltip = "label")
 
 
 
