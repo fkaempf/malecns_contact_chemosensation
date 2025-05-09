@@ -1,0 +1,644 @@
+---
+title: "inhibitory.network.exploration"
+output: html_document
+---
+
+```{r}
+library(malecns)
+library(coconatfly)
+library(fafbseg)
+library(neuprintr)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(plotly)
+library(stringr)
+library(igraph)
+library(tidygraph)
+library(ggraph)
+library(jsonlite)
+library(ggplot2)
+library(reshape2)
+library(Matrix)
+library(patchwork)
+library(plotly)
+```
+
+# 1 Load data
+
+## 1.1 Load male boday annotations
+```{r}
+synapse_threshold=5
+mba<-mcns_body_annotations()
+mba.static<-mcns_body_annotations()
+mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
+conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
+leg.t1=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T1)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T1)(L)"))
+leg.t2=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T2)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T2)(L)"))
+leg.t3=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T3)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T3)(L)"))
+neuprint_get_roiInfo(811551)
+```
+
+# 3 Plots
+
+```{r}
+mcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23")) %>%
+    pull(bodyid)
+
+mcell.legbristle.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk23"),subclass=='leg bristle') %>%
+    pull(bodyid)
+
+
+fcell.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25")) %>%
+    pull(bodyid)
+fcell.legbristle.ids <- mba %>% 
+    filter(str_detect(receptor_type, "ppk25"),subclass=='leg bristle') %>%
+    pull(bodyid)
+
+cfps.mcell.out <- cf_partner_summary(cf_ids(malecns = mcell.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='mcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='mcell')
+cfps.mcell.bristle.out <- cf_partner_summary(cf_ids(malecns = mcell.legbristle.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='mcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='mcell')
+cfps.fcell.out <- cf_partner_summary(cf_ids(malecns = fcell.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='fcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='fcell')
+cfps.fcell.bristle.out <- cf_partner_summary(cf_ids(malecns = fcell.legbristle.ids),threshold=5,partners='o')%>%
+  mutate(type.pre='fcell')%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight),npost=sum(npost))%>%
+  rename(weight=weight)%>%
+  mutate(normed.weight = weight/npost)%>%
+  mutate(type.pre='fcell')
+```
+
+```{r}
+
+AN09B017.normed.input <- cf_partner_summary(cf_ids(malecns='AN09B017'),partners = 'i',threshold = 5,normalise = T)%>%
+  mutate(weight=as.numeric(sprintf("%.5f", weight)))
+AN05B102.normed.input <- cf_partner_summary(cf_ids(malecns='AN05B102'),partners = 'i',threshold = 5,normalise = T)%>%
+  mutate(weight=as.numeric(sprintf("%.5f", weight)))
+
+
+cfps.fused.out <-  rbind(cfps.fcell.out,cfps.mcell.out)%>%
+    select(-npost)%>%
+    pivot_wider(
+        names_from = type.pre,
+        values_from = c(weight, normed.weight),
+        values_fn = list(weight = mean, normed.weight = mean),  # or other summaries
+        values_fill = 0
+    )%>%
+  filter(!is.na(type.post))%>%
+  left_join(AN09B017.normed.input%>%
+              select(type.pre,weight),
+            by=c('type.post'='type.pre'))%>%
+  rename(output.2.AN09B017.normed=weight)%>%
+  left_join(AN05B102.normed.input%>%
+              select(type.pre,weight),
+            by=c('type.post'='type.pre'))%>%
+  rename(output.2.AN05B102.normed=weight)%>%
+  mutate(output.2.AN05B102.normed = ifelse(is.na(output.2.AN05B102.normed), 0, output.2.AN05B102.normed),
+         output.2.AN09B017.normed = ifelse(is.na(output.2.AN09B017.normed), 0, output.2.AN09B017.normed))
+
+post.nt<-mba%>%filter(type %in% cfps.fused.out$type.post)%>%select(type,consensus_nt)%>%distinct()
+cfps.fused.out<-cfps.fused.out%>%left_join(post.nt,by=c('type.post'='type'))
+post.all.in <- cf_partner_summary(cf_ids(malecns=mba%>%
+                                           filter(type %in% cfps.fused.out$type.post)%>%
+                                           pull(bodyid)),
+                                  partners = 'i',threshold=5)%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight))
+
+cfps.fused.out.syn.normed <- cfps.fused.out %>%left_join(post.all.in,by='type.post')%>%
+  mutate(post.normed.weight_mcell=weight_mcell/weight,
+         post.normed.weight_fcell=weight_fcell/weight)
+
+#bristle
+cfps.fused.bristle.out <-  rbind(cfps.fcell.bristle.out,cfps.mcell.bristle.out)%>%
+    select(-npost)%>%
+    pivot_wider(
+        names_from = type.pre,
+        values_from = c(weight, normed.weight),
+        values_fn = list(weight = mean, normed.weight = mean),  # or other summaries
+        values_fill = 0
+    )%>%
+  filter(!is.na(type.post))%>%
+  left_join(AN09B017.normed.input%>%select(type.pre,weight),by=c('type.post'='type.pre'))%>%
+  rename(output.2.AN09B017.normed=weight)%>%
+  left_join(AN05B102.normed.input%>%select(type.pre,weight),by=c('type.post'='type.pre'))%>%
+  rename(output.2.AN05B102.normed=weight)%>%
+  mutate(output.2.AN05B102.normed = ifelse(is.na(output.2.AN05B102.normed), 0, output.2.AN05B102.normed),
+         output.2.AN09B017.normed = ifelse(is.na(output.2.AN09B017.normed), 0, output.2.AN09B017.normed))
+
+britsle.post.nt<-mba%>%filter(type %in% cfps.fused.bristle.out$type.post)%>%select(type,consensus_nt)%>%distinct()
+cfps.fused.bristle.out<-cfps.fused.bristle.out%>%
+  left_join(britsle.post.nt,by=c('type.post'='type'))
+
+
+post.all.in.bristle <- cf_partner_summary(cf_ids(malecns=mba%>%
+                                           filter(type %in% cfps.fused.bristle.out$type.post)%>%
+                                           pull(bodyid)),
+                                  partners = 'i',threshold=5)%>%
+  group_by(type.post)%>%
+  summarize(weight=sum(weight))
+
+
+
+cfps.fused.bristle.out.syn.normed <- cfps.fused.bristle.out %>%left_join(post.all.in.bristle,by='type.post')%>%
+  mutate(post.normed.weight_mcell=weight_mcell/weight,
+         post.normed.weight_fcell=weight_fcell/weight)
+```
+
+#plots with size corresponding to coutput to AN05B102
+```{r}
+
+#1
+p1 <- ggplot(cfps.fused.bristle.out,
+             aes(x = weight_fcell, 
+                 y = weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN05B102.normed
+                 )) +
+  geom_point(alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  scale_size_continuous(range = c(1, 10)) +
+  labs(
+    title = "Weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p1, tooltip = c("label", "size", "color"))
+p1
+#2
+p2 <- ggplot(cfps.fused.bristle.out, 
+             aes(x = normed.weight_fcell, 
+                 y = normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN05B102.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p2, tooltip = c("label", "size", "color"))
+p2
+#5
+p5 <- ggplot(cfps.fused.bristle.out.syn.normed, 
+             aes(x = post.normed.weight_fcell, 
+                 y = post.normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN05B102.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed by total in syn of post cell weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p5, tooltip = c("label", "size", "color"))
+p5
+
+#3
+p3 <- ggplot(cfps.fused.out, 
+             aes(x = weight_fcell,
+                 y = weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN05B102.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p3, tooltip = c("label", "size", "color"))
+p3
+#4
+p4 <- ggplot(cfps.fused.out, 
+             aes(x = normed.weight_fcell, 
+                 y = normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN05B102.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p4, tooltip = c("label", "size", "color"))
+
+p4
+
+#6
+p6 <- ggplot(cfps.fused.out.syn.normed, 
+             aes(x = post.normed.weight_fcell, 
+                 y = post.normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN05B102.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+    scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed by total in syn of post cell weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p6, tooltip = c("label", "size", "color"))
+p6
+```
+interesting.neurons <- c('SNch05a','SNch05b','SNch03','SNch04','SNch09','SNch01',
+                         'ANXXX093','AN13B002','AN05B023','AN05B025','AN05B102','AN05B035','AN09B017',
+                         'IN05B011','IN05B002')
+
+
+#plots with size corresponding to coutput to AN09B017
+```{r}
+
+#1
+p1 <- ggplot(cfps.fused.bristle.out,
+             aes(x = weight_fcell, 
+                 y = weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN09B017.normed
+                 )) +
+  geom_point(alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  scale_size_continuous(range = c(1, 10)) +
+  labs(
+    title = "Weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p1, tooltip = c("label", "size", "color"))
+p1
+
+#2
+p2 <- ggplot(cfps.fused.bristle.out, 
+             aes(x = normed.weight_fcell, 
+                 y = normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN09B017.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p2, tooltip = c("label", "size", "color"))
+p2
+
+#5
+p5 <- ggplot(cfps.fused.bristle.out.syn.normed, 
+             aes(x = post.normed.weight_fcell, 
+                 y = post.normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN09B017.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed by total in syn of post cell weight bristle.fcell vs. bristle.mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p5, tooltip = c("label", "size", "color"))
+p5
+
+#3
+p3 <- ggplot(cfps.fused.out, 
+             aes(x = weight_fcell,
+                 y = weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN09B017.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p3, tooltip = c("label", "size", "color"))
+p3
+
+#4
+p4 <- ggplot(cfps.fused.out, 
+             aes(x = normed.weight_fcell, 
+                 y = normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN09B017.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+  scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p4, tooltip = c("label", "size", "color"))
+
+p4
+
+#6
+p6 <- ggplot(cfps.fused.out.syn.normed, 
+             aes(x = post.normed.weight_fcell, 
+                 y = post.normed.weight_mcell, 
+                 label = type.post,
+                 color = consensus_nt,
+                 size = output.2.AN09B017.normed)) +
+  geom_point(alpha = 0.7) +
+  scale_size_continuous(range = c(1, 10)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray",alpha=0.5) +
+    scale_color_manual(
+    values = c(
+      "acetylcholine" = "#1f77b4",
+      "gaba" = "#ff7f0e",
+      "glutamate" = "#2ca02c"
+    )
+  ) +
+  labs(
+    title = "Normed by total in syn of post cell weight fcell vs. mcell",
+    x = "Weight (fcell)",
+    y = "Weight (mcell)"
+  ) +
+  theme_minimal()
+
+ggplotly(p6, tooltip = c("label", "size", "color"))
+p6
+```
+
+
+## Create network of interesting neurons
+
+```{r}
+overwrite.2.mfcell <- T
+
+interesting.neurons <- c('SNch05a','SNch05b','SNch03','SNch04','SNch09','SNch01',
+                         'ANXXX093','AN13B002','AN05B023','AN05B025','AN05B102','AN05B035','AN09B017',
+                         'IN05B011','IN05B002')
+interesting.neurons <- c(interesting.neurons,mba%>%filter(grepl('ppk',receptor_type),!is.na(type))%>%pull(type)%>%unique())
+connectivity.neurons.in <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'i')%>%
+  select(pre_id,post_id,weight)
+connectivity.neurons.out <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'o')%>%
+  select(pre_id,post_id,weight)
+  
+connectivity.neurons.all <- rbind(connectivity.neurons.in,connectivity.neurons.out)%>%
+  distinct()%>%
+  left_join(mba%>%
+              select(bodyid,type,consensus_nt,receptor_type,superclass)%>%
+              rename(pre_type=type,pre_id=bodyid,pre_nt=consensus_nt,pre_receptor_type=receptor_type,pre_superclass=superclass),by='pre_id')%>%
+  left_join(mba%>%
+              select(bodyid,type,consensus_nt,receptor_type,superclass)%>%
+              rename(post_type=type,post_id=bodyid,post_nt=consensus_nt,post_receptor_type=receptor_type,post_superclass=superclass),by='post_id')%>%
+  mutate(real_pre_type=pre_type,
+         real_opost_type=post_type)%>%
+  mutate(pre_type=case_when(
+    pre_receptor_type == 'putative_ppk23' ~ 'mcell',
+    pre_receptor_type == 'putative_ppk25' ~ 'fcell',
+    .default = as.character(pre_type)
+    ),
+    post_type=case_when(
+    post_receptor_type == 'putative_ppk23' ~ 'mcell',
+    post_receptor_type == 'putative_ppk25' ~ 'fcell',
+    .default = as.character(post_type))
+    
+  )%>%
+  mutate(pre_type=case_when(
+    pre_superclass == 'vnc_sensory' ~ case_when(
+          pre_id %in% leg.t1$bodyid ~ paste0(pre_type,'_','t1'),
+          pre_id %in% leg.t2$bodyid ~ paste0(pre_type,'_','t1'),
+          pre_id %in% leg.t3$bodyid ~ paste0(pre_type,'_','t3'),
+          .default = as.character(pre_type)
+          ),
+    .default = as.character(pre_type)))%>%
+  mutate(post_type=case_when(
+    post_superclass == 'vnc_sensory' ~ case_when(
+          post_id %in% leg.t1$bodyid ~ paste0(post_type,'_','t1'),
+          post_id %in% leg.t2$bodyid ~ paste0(post_type,'_','t1'),
+          post_id %in% leg.t3$bodyid ~ paste0(post_type,'_','t3'),
+          .default = as.character(post_type)
+          ),
+    .default = as.character(post_type)
+    )
+    )
+
+
+
+pre.sum<- cf_partner_summary(cf_ids(malecns=unique(connectivity.neurons.all$pre_id)),partners = 'o',threshold=5)%>%
+  rename(pre_type=type.pre)%>%
+  group_by(pre_type)%>%
+  summarize(weight.pre.out.total=sum(weight))%>%
+  select(pre_type,weight.pre.out.total)
+
+post.sum <- cf_partner_summary(cf_ids(malecns=unique(connectivity.neurons.all$post_id)),partners = 'i',threshold=5)%>%
+  rename(post_type=type.post)%>%
+  group_by(post_type)%>%
+  summarize(weight.post.in.total=sum(weight))%>%
+  select(post_type,weight.post.in.total)
+
+
+connectivity.neurons.all.grouped <- connectivity.neurons.all%>%  
+  mutate(
+    real_pre_type = str_remove_all(as.character(real_pre_type), "[()]"),
+    real_opost_type = str_remove_all(as.character(real_opost_type), "[()]")
+  )%>%
+  left_join(pre.sum,by=c('real_pre_type'='pre_type'))%>%
+  left_join(post.sum,by=c('real_opost_type'='post_type'))%>%
+  mutate(
+    pre_type = str_remove_all(as.character(pre_type), "[()]"),
+    post_type = str_remove_all(as.character(post_type), "[()]")
+  )%>%
+  group_by(pre_type,post_type)%>%
+  summarize(weight=sum(weight),
+            pre_nt=first(pre_nt),
+            post_nt=first(post_nt),
+            weight.post.in.total=mean(weight.post.in.total),
+            weight.pre.out.total=mean(weight.pre.out.total),
+            weight.normed.total.in.post=sum(weight)/mean(weight.post.in.total),
+            weight.normed.total.out.pre=sum(weight)/mean(weight.pre.out.total))
+
+
+  
+
+#g <- graph_from_data_frame(connectivity.neurons.all.grouped, directed = TRUE)
+#RCy3::createNetworkFromIgraph(g)
+```
+
+
+```{r}
+library(dplyr)
+library(stringr)
+library(purrr) 
+
+m.and.f <- c('mcell','mcell_t2','mcell_t3','mcell_t1','fcell_t1','fcell_t2','fcell_t3','fcell')
+
+graph_data <- connectivity.neurons.all.grouped %>%
+  filter(reduce(c(interesting.neurons,m.and.f), ~ .x | str_detect(post_type, .y), .init = FALSE)) %>%
+  filter(reduce(c(interesting.neurons,m.and.f), ~ .x | str_detect(pre_type, .y), .init = FALSE))
+
+g.int <- graph_from_data_frame(graph_data, directed = TRUE)
+
+
+node_data <- connectivity.neurons.all.grouped %>%
+  select(name = pre_type, nt = pre_nt) %>%
+  bind_rows(
+    connectivity.neurons.all.grouped %>%
+      select(name = post_type, nt = post_nt)
+  ) %>%
+  distinct(name, .keep_all = TRUE) 
+V(g.int)$nt <- node_data$nt[match(V(g.int)$name, node_data$name)]
+edge_df <- connectivity.neurons.all.grouped %>%
+  select(pre_type, post_type, pre_nt)
+
+# Match edge neurotransmitters based on from and to
+edges <- get.data.frame(g.int, what = "edges")
+edge_nts <- edge_df$pre_nt[match(
+  paste(edges$from, edges$to),
+  paste(edge_df$pre_type, edge_df$post_type)
+)]
+E(g.int)$weight <- as.numeric(graph_data$weight)
+E(g.int)$weight.normed.total.in.post <- as.numeric(graph_data$weight.normed.total.in.post)
+E(g.int)$weight.normed.total.out.pre <- as.numeric(graph_data$weight.normed.total.out.pre)
+E(g.int)$nt <- edge_nts
+
+
+RCy3::createNetworkFromIgraph(g.int)
+
+```
+
