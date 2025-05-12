@@ -511,7 +511,7 @@ overwrite.2.mfcell <- T
 
 interesting.neurons <- c('SNch05a','SNch05b','SNch03','SNch04','SNch09','SNch01',
                          'ANXXX093','AN13B002','AN05B023','AN05B025','AN05B102','AN05B035','AN09B017',
-                         'IN05B011','IN05B002')
+                         'IN05B011','IN05B002','SNch11','SNch08','SNch10')
 interesting.neurons <- c(interesting.neurons,mba%>%filter(grepl('ppk',receptor_type),!is.na(type))%>%pull(type)%>%unique())
 connectivity.neurons.in <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'i')%>%
   select(pre_id,post_id,weight)
