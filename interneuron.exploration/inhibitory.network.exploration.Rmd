@@ -591,7 +591,12 @@ connectivity.neurons.all.grouped <- connectivity.neurons.all%>%
             weight.post.in.total=mean(weight.post.in.total),
             weight.pre.out.total=mean(weight.pre.out.total),
             weight.normed.total.in.post=sum(weight)/mean(weight.post.in.total),
-            weight.normed.total.out.pre=sum(weight)/mean(weight.pre.out.total))
+            weight.normed.total.out.pre=sum(weight)/mean(weight.pre.out.total))%>%
+  ungroup()%>%
+  mutate(mean.in.normed.out.normed =
+    rowMeans(across(c(weight.normed.total.out.pre,
+                      weight.normed.total.in.post)))
+)
 
 
   
