@@ -496,7 +496,7 @@ ggplot(pca_df, aes(x = PC1, y = PC2, label = neuron)) +
 library(uwot)
 
 # Run UMAP on scaled mean output matrix
-umap_embedding <- umap(mean_output_matrix_scaled, n_neighbors = 5
+umap_embedding <- umap(mean_output_matrix_scaled, n_neighbors = 5,
                        2, min_dist = 0.3, metric = "euclidean")
 
 # Make a data frame for plotting
