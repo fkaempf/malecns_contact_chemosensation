@@ -1,5 +1,515 @@
 ---
-title: "inhibitory.network.combanitoric.activation"
+title: "inhibitory.network.exploration"
 output: html_document
 ---
+
+```{r}
+library(malecns)
+library(coconatfly)
+library(fafbseg)
+library(neuprintr)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(plotly)
+library(stringr)
+library(igraph)
+library(tidygraph)
+library(ggraph)
+library(jsonlite)
+library(ggplot2)
+library(reshape2)
+library(Matrix)
+library(patchwork)
+library(plotly)
+```
+
+# 1 Load data
+
+## 1.1 Load male boday annotations
+```{r}
+synapse_threshold=5
+mba<-mcns_body_annotations()
+mba.static<-mcns_body_annotations()
+mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
+conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
+leg.t1=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T1)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T1)(L)"))
+leg.t2=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T2)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T2)(L)"))
+leg.t3=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T3)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T3)(L)"))
+neuprint_get_roiInfo(811551)
+```
+
+
+## Create network of interesting neurons
+
+```{r}
+overwrite.2.mfcell <- T
+
+interesting.neurons <- c('SNch05a','SNch05b','SNch03','SNch04','SNch09','SNch01',
+                         'ANXXX093','AN13B002','AN05B023','AN05B025','AN05B102','AN05B035','AN09B017',
+                         'IN05B011','IN05B002','SNch11','SNch08','SNch10')
+interesting.neurons <- c(interesting.neurons,mba%>%filter(grepl('ppk',receptor_type),!is.na(type))%>%pull(type)%>%unique())
+connectivity.neurons.in <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'i')%>%
+  select(pre_id,post_id,weight)
+connectivity.neurons.out <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'o')%>%
+  select(pre_id,post_id,weight)
+  
+connectivity.neurons.all <- rbind(connectivity.neurons.in,connectivity.neurons.out)%>%
+  distinct()%>%
+  left_join(mba%>%
+              select(bodyid,type,consensus_nt,receptor_type,superclass)%>%
+              rename(pre_type=type,pre_id=bodyid,pre_nt=consensus_nt,pre_receptor_type=receptor_type,pre_superclass=superclass),by='pre_id')%>%
+  left_join(mba%>%
+              select(bodyid,type,consensus_nt,receptor_type,superclass)%>%
+              rename(post_type=type,post_id=bodyid,post_nt=consensus_nt,post_receptor_type=receptor_type,post_superclass=superclass),by='post_id')%>%
+  mutate(real_pre_type=pre_type,
+         real_opost_type=post_type)%>%
+  mutate(pre_type=case_when(
+    pre_receptor_type == 'putative_ppk23' ~ 'mcell',
+    pre_receptor_type == 'putative_ppk25' ~ 'fcell',
+    .default = as.character(pre_type)
+    ),
+    post_type=case_when(
+    post_receptor_type == 'putative_ppk23' ~ 'mcell',
+    post_receptor_type == 'putative_ppk25' ~ 'fcell',
+    .default = as.character(post_type))
+    
+  )%>%
+  mutate(pre_type=case_when(
+    pre_superclass == 'vnc_sensory' ~ case_when(
+          pre_id %in% leg.t1$bodyid ~ paste0(pre_type,'_','t1'),
+          pre_id %in% leg.t2$bodyid ~ paste0(pre_type,'_','t1'),
+          pre_id %in% leg.t3$bodyid ~ paste0(pre_type,'_','t3'),
+          .default = as.character(pre_type)
+          ),
+    .default = as.character(pre_type)))%>%
+  mutate(post_type=case_when(
+    post_superclass == 'vnc_sensory' ~ case_when(
+          post_id %in% leg.t1$bodyid ~ paste0(post_type,'_','t1'),
+          post_id %in% leg.t2$bodyid ~ paste0(post_type,'_','t1'),
+          post_id %in% leg.t3$bodyid ~ paste0(post_type,'_','t3'),
+          .default = as.character(post_type)
+          ),
+    .default = as.character(post_type)
+    )
+    )
+
+
+
+pre.sum<- cf_partner_summary(cf_ids(malecns=unique(connectivity.neurons.all$pre_id)),partners = 'o',threshold=5)%>%
+  rename(pre_type=type.pre)%>%
+  group_by(pre_type)%>%
+  summarize(weight.pre.out.total=sum(weight))%>%
+  select(pre_type,weight.pre.out.total)
+
+post.sum <- cf_partner_summary(cf_ids(malecns=unique(connectivity.neurons.all$post_id)),partners = 'i',threshold=5)%>%
+  rename(post_type=type.post)%>%
+  group_by(post_type)%>%
+  summarize(weight.post.in.total=sum(weight))%>%
+  select(post_type,weight.post.in.total)
+
+
+connectivity.neurons.all.grouped <- connectivity.neurons.all%>%  
+  mutate(
+    real_pre_type = str_remove_all(as.character(real_pre_type), "[()]"),
+    real_opost_type = str_remove_all(as.character(real_opost_type), "[()]")
+  )%>%
+  left_join(pre.sum,by=c('real_pre_type'='pre_type'))%>%
+  left_join(post.sum,by=c('real_opost_type'='post_type'))%>%
+  mutate(
+    pre_type = str_remove_all(as.character(pre_type), "[()]"),
+    post_type = str_remove_all(as.character(post_type), "[()]")
+  )%>%
+  group_by(pre_type,post_type)%>%
+  summarize(weight=sum(weight),
+            pre_nt=first(pre_nt),
+            post_nt=first(post_nt),
+            weight.post.in.total=mean(weight.post.in.total),
+            weight.pre.out.total=mean(weight.pre.out.total),
+            weight.normed.total.in.post=sum(weight)/mean(weight.post.in.total),
+            weight.normed.total.out.pre=sum(weight)/mean(weight.pre.out.total))%>%
+  ungroup()%>%
+  mutate(mean.in.normed.out.normed =
+    rowMeans(across(c(weight.normed.total.out.pre,
+                      weight.normed.total.in.post)))
+)
+
+
+  
+
+#g <- graph_from_data_frame(connectivity.neurons.all.grouped, directed = TRUE)
+#RCy3::createNetworkFromIgraph(g)
+```
+
+
+```{r}
+library(dplyr)
+library(stringr)
+library(purrr) 
+
+m.and.f <- c('mcell','mcell_t2','mcell_t3','mcell_t1','fcell_t1','fcell_t2','fcell_t3','fcell')
+
+graph_data <- connectivity.neurons.all.grouped %>%
+  filter(reduce(c(interesting.neurons,m.and.f), ~ .x | str_detect(post_type, .y), .init = FALSE)) %>%
+  filter(reduce(c(interesting.neurons,m.and.f), ~ .x | str_detect(pre_type, .y), .init = FALSE))
+
+g.int <- graph_from_data_frame(graph_data, directed = TRUE)
+
+
+node_data <- connectivity.neurons.all.grouped %>%
+  select(name = pre_type, nt = pre_nt) %>%
+  bind_rows(
+    connectivity.neurons.all.grouped %>%
+      select(name = post_type, nt = post_nt)
+  ) %>%
+  distinct(name, .keep_all = TRUE) 
+V(g.int)$nt <- node_data$nt[match(V(g.int)$name, node_data$name)]
+edge_df <- connectivity.neurons.all.grouped %>%
+  select(pre_type, post_type, pre_nt)
+
+# Match edge neurotransmitters based on from and to
+edges <- get.data.frame(g.int, what = "edges")
+edge_nts <- edge_df$pre_nt[match(
+  paste(edges$from, edges$to),
+  paste(edge_df$pre_type, edge_df$post_type)
+)]
+E(g.int)$weight <- as.numeric(graph_data$weight)
+E(g.int)$weight.normed.total.in.post <- as.numeric(graph_data$weight.normed.total.in.post)
+E(g.int)$weight.normed.total.out.pre <- as.numeric(graph_data$weight.normed.total.out.pre)
+E(g.int)$nt <- edge_nts
+
+
+RCy3::createNetworkFromIgraph(g.int)
+
+```
+
+Make adjacency matrix from network
+
+```{r}
+adj_mat <- as_adjacency_matrix(g.int, 
+                               attr = 'weight',     # use NULL for unweighted; or give edge‐attribute name
+                               sparse = FALSE)
+
+adj_mat <- adj_mat/max(adj_mat)
+
+nts <- connectivity.neurons.all.grouped%>%
+  select(pre_type,pre_nt)%>%
+  group_by(pre_type)%>%
+  summarize(nt=first(pre_nt))%>%
+  filter(pre_type %in% rownames(adj_mat))
+nt_signs <- c(
+  "acetylcholine" = 1,
+  "glutamate" = -1,
+  "gaba" = -1
+)
+
+nts$nt <- nt_signs[tolower(nts$nt)]
+
+adj_mat<-adj_mat * as.integer(nts$nt)
+
+
+cols_all <- colnames(adj_mat)
+
+# Generate combinations from cols_subset (e.g., those with "SN" or "cell")
+cols_subset <- cols_all[grepl("SN|cell", cols_all)]
+
+# Get all combinations of size 1 to length(cols_subset)
+all_combinations <- unlist(
+  lapply(1:length(cols_subset), function(n) {
+    combn(cols_subset, n, simplify = FALSE)
+  }),
+  recursive = FALSE
+)
+
+# Convert each combination to a logical mask over all columns
+logical_masks <- lapply(all_combinations, function(combo) {
+  cols_all %in% combo
+})
+
+activity_per_neuron <- setNames(vector("list", length = nrow(adj_mat)), rownames(adj_mat))
+pattern_activity_list <- list()  # Each entry = one pattern’s network response
+
+
+for (log_mask in logical_masks){
+
+
+in_mat <- matrix(1, nrow = nrow(adj_mat), ncol = ncol(adj_mat),
+                  dimnames = dimnames(adj_mat))
+in_mat[!log_mask] = 0
+# Step 1 propagation
+prop_mat.1 <- sweep(in_mat, 1, colSums(in_mat*adj_mat), FUN = "+")
+activity.1 <- rowMeans(prop_mat.1)
+# Step 2
+prop_mat.2 <- sweep(prop_mat.1, 1, colSums(prop_mat.1*adj_mat), FUN = "+")
+activity.2 <- rowMeans(prop_mat.2)
+# Step 3
+prop_mat.3 <- sweep(prop_mat.2, 1, colSums(prop_mat.2*adj_mat), FUN = "+")
+activity.3 <- rowMeans(prop_mat.3)
+
+activity_total <- c(activity.1, activity.2, activity.3)
+pattern_vector <- c(activity.1,activity.2, activity.3) #c(activity.2, activity.3)
+
+pattern_activity_list[[length(pattern_activity_list) + 1]] <- pattern_vector
+
+
+for (i in seq_along(activity_total)) {
+    neuron <- names(activity_total)[i]
+    activity_per_neuron[[neuron]] <- c(activity_per_neuron[[neuron]], activity_total[i])
+  }
+
+}
+
+activity_matrix <- do.call(rbind, activity_per_neuron)
+rownames(activity_matrix) <- rownames(adj_mat)
+activity_matrix_scaled <- t(scale(t(activity_matrix)))
+dist_matrix <- dist(activity_matrix_scaled, method = "euclidean")
+hc <- hclust(dist_matrix, method = "ward.D2")
+plot(hc, labels = rownames(activity_matrix_scaled), main = "Neuron Clustering")
+
+
+
+# Convert to a matrix: rows = patterns, cols = neuron-time features
+pattern_activity_matrix <- do.call(rbind, pattern_activity_list)
+
+# Optional: scale (center and normalize features per neuron-time unit)
+pattern_activity_matrix_scaled <- scale(pattern_activity_matrix)
+
+# Cluster: similarity between activation patterns
+dist_patterns <- dist(pattern_activity_matrix_scaled, method = "euclidean")
+hc_patterns <- hclust(dist_patterns, method = "ward.D2")
+
+# Plot dendrogram
+plot(hc_patterns, main = "Similarity Between Activation Patterns")
+```
+Correlation
+```{r}
+library(pheatmap)
+neurons <- colnames(adj_mat)
+activation_matrix <- do.call(rbind, lapply(logical_masks, function(mask) {
+  setNames(colnames(adj_mat) %in% colnames(adj_mat)[mask], neurons)
+}))
+active_neuron_cols <- colSums(activation_matrix) > 0
+activation_matrix_filtered <- activation_matrix[, active_neuron_cols, drop = FALSE]
+active_neuron_cols <- colSums(activation_matrix) > 0
+activation_matrix_filtered <- activation_matrix[, active_neuron_cols, drop = FALSE]
+pheatmap(cor(activation_matrix_filtered, pattern_activity_matrix))
+```
+cluster
+```{r}
+# Then for each cluster, compute average input activation
+clusters <- kmeans(activity_matrix, centers = 10)$cluster
+
+cluster_inputs <- sapply(unique(clusters), function(cl) {
+  colMeans(activation_matrix_filtered[clusters == cl, ])
+})
+
+# View which neurons tend to be active in patterns that cause similar output
+colnames(cluster_inputs) <- paste0("Cluster_", 1:ncol(cluster_inputs))
+pheatmap(cluster_inputs)
+
+```
+tree
+```{r}
+library(rpart)
+library(rpart.plot)
+
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+target_neuron = "AN09B017"
+target_neuron2 = "AN05B035"
+df <- as.data.frame(activation_matrix_filtered)
+df$target <- pattern_activity_matrix[, target_neuron] > quantile(pattern_activity_matrix[, target_neuron],0.8) & pattern_activity_matrix[, target_neuron2] > quantile(pattern_activity_matrix[, target_neuron2],0.8)
+
+tree <- rpart(target ~ ., data = df)
+
+fancyRpartPlot(tree,type=5,caption=NULL)
+```
+
+
+PCA
+```{r}
+# Run PCA
+pca_res <- prcomp(pattern_activity_matrix_scaled, center = TRUE, scale. = TRUE)
+
+
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Step 1: Filter neurons that are active in at least one pattern
+active_neuron_cols <- colSums(activation_matrix) > 0
+activation_matrix_filtered <- activation_matrix[, active_neuron_cols, drop = FALSE]
+
+# Step 2: Combine PCA with activation matrix and compute activation count
+pca_df <- as.data.frame(pca_res$x[, 1:2])
+pca_df <- cbind(pca_df, activation_matrix_filtered)
+pca_df$activation_count <- rowSums(activation_matrix_filtered)
+
+# Step 3: Convert to long format for faceting
+pca_long <- pivot_longer(pca_df,
+                         cols = colnames(activation_matrix_filtered),
+                         names_to = "neuron", values_to = "active")
+
+# Step 4: Plot with color for activation, and size or alpha for # of active neurons
+library(ggplot2)
+library(dplyr)
+
+# Step 1: Compute convex hull for all points per neuron
+hull_df <- pca_long %>%
+  group_by(neuron) %>%
+  slice(chull(PC1, PC2))
+
+# Step 2: Plot
+ggplot(pca_long, aes(x = PC1, y = PC2)) +
+  # Convex hull outlines for all points
+  geom_polygon(
+    data = hull_df,
+    aes(group = neuron),
+    fill = NA,
+    color = "gray40",
+    linewidth = 0.3
+  ) +
+  # All points (active and inactive)
+  geom_point(
+    aes(color = active, alpha = activation_count),
+    size = 1.5,
+    stroke = 0
+  ) +
+  scale_color_manual(values = c("FALSE" = "grey85", "TRUE" = "red")) +
+  scale_alpha_continuous(range = c(0.1, 1)) +
+  facet_wrap(~ neuron, ncol = 4, scales = "fixed") +
+  theme_minimal() +
+  labs(
+    title = "PCA of Activation Patterns Faceted by Active Neuron",
+    subtitle = "Red = neuron in activation pattern; Hull includes all points",
+    alpha = "# active neurons in pattern"
+  )
+```
+
+
+PCA
+```{r}
+# Step 1: Identify neurons with non-zero output somewhere
+active_output_cols <- colSums(pattern_activity_matrix) > 0
+pattern_activity_filtered <- pattern_activity_matrix[, active_output_cols, drop = FALSE]
+
+# Step 2: Create logical matrix marking values above 80th percentile
+thresholded_output <- sweep(pattern_activity_filtered, 2, 
+                            apply(pattern_activity_filtered, 2, quantile, probs = 0.8), 
+                            FUN = ">")
+
+# Step 3: Combine with PCA results
+pca_df <- as.data.frame(pca_res$x[, 1:2])
+pca_df <- cbind(pca_df, thresholded_output)
+pca_df$activation_count <- rowSums(thresholded_output)
+pca_df$alpha_inverse <- 1 - scales::rescale(pca_df$activation_count)
+
+
+# Step 4: Long format for plotting
+pca_long <- pivot_longer(pca_df,
+                         cols = colnames(thresholded_output),
+                         names_to = "neuron", values_to = "active")
+
+# Step 5: Plot
+library(ggplot2)
+library(dplyr)
+
+# Step 1: Convex hulls based on all points per neuron
+hull_df <- pca_long %>%
+  group_by(neuron) %>%
+  slice(chull(PC1, PC2))
+
+# Step 2: Full plot
+ggplot(pca_long, aes(x = PC1, y = PC2)) +
+  # Hull for all points (active + inactive)
+  geom_polygon(
+    data = hull_df,
+    aes(group = neuron),
+    fill = NA,
+    color = "gray40",
+    linewidth = 0.3
+  ) +
+  # Plot only active points, but keep all facets
+  geom_point(
+    data = subset(pca_long, active == TRUE),
+    aes(color = active, alpha = alpha_inverse),
+    size = 1.5,
+    stroke = 0
+  ) +
+  scale_color_manual(values = c("TRUE" = "red")) +
+  scale_alpha_continuous(range = c(0.1, 1)) +
+  facet_wrap(~ neuron, ncol = 4, scales = "fixed") +
+  theme_minimal() +
+  labs(
+    title = "PCA of Activation Patterns with Convex Hulls",
+    subtitle = "Red = neuron active (> 80th percentile); hull includes all points",
+    alpha = "Inverse # active neurons"
+  )
+```
+
+
+```{r}
+library(dplyr)
+
+# Step 1: Filter input neurons that are ever active
+input_activity <- as.data.frame(activation_matrix)
+input_activity <- input_activity[, colSums(input_activity) > 0, drop = FALSE]
+
+# Step 2: Compute average output for each input neuron
+mean_output_per_input <- lapply(colnames(input_activity), function(neuron) {
+  patterns_where_on <- input_activity[[neuron]] == 1
+  colMeans(pattern_activity_matrix[patterns_where_on, , drop = FALSE])
+})
+
+# Step 3: Combine into matrix
+mean_output_matrix <- do.call(rbind, mean_output_per_input)
+rownames(mean_output_matrix) <- colnames(input_activity)
+
+# Step 4: Scale and cluster
+mean_output_matrix_scaled <- scale(mean_output_matrix)
+dist_input <- dist(mean_output_matrix_scaled)
+hc_input <- hclust(dist_input, method = "ward.D2")
+
+# Step 5: Plot
+plot(hc_input, main = "Input Neuron Clustering by Downstream Output Patterns")
+
+#PCA
+pca_df <- as.data.frame(pca_in$x[, 1:2])
+pca_df$neuron <- rownames(pca_in$x)
+
+# Plot
+ggplot(pca_df, aes(x = PC1, y = PC2, label = neuron)) +
+  geom_point(color = "steelblue", size = 2) +
+  geom_text(size = 3, vjust = -0.5) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Input Neurons by Functional Output",
+    x = "PC1",
+    y = "PC2"
+  )
+
+
+#UMAP
+
+library(uwot)
+
+# Run UMAP on scaled mean output matrix
+umap_embedding <- umap(mean_output_matrix_scaled, n_neighbors = 5
+                       2, min_dist = 0.3, metric = "euclidean")
+
+# Make a data frame for plotting
+umap_df <- as.data.frame(umap_embedding)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+umap_df$neuron <- rownames(mean_output_matrix_scaled)
+
+library(ggplot2)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, label = neuron)) +
+  geom_point(color = "steelblue", size = 2) +
+  geom_text(size = 3, vjust = -0.5) +
+  theme_minimal() +
+  labs(title = "UMAP of Input Neurons by Functional Output Pattern")
+```
 
