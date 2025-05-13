@@ -239,12 +239,15 @@ in_mat <- matrix(1, nrow = nrow(adj_mat), ncol = ncol(adj_mat),
 in_mat[!log_mask] = 0
 # Step 1 propagation
 prop_mat.1 <- sweep(in_mat, 1, colSums(in_mat*adj_mat), FUN = "+")
+prop_mat.1 <- relu(prop_mat.1)
 activity.1 <- rowMeans(prop_mat.1)
 # Step 2
 prop_mat.2 <- sweep(prop_mat.1, 1, colSums(prop_mat.1*adj_mat), FUN = "+")
+prop_mat.2 <- relu(prop_mat.2)
 activity.2 <- rowMeans(prop_mat.2)
 # Step 3
 prop_mat.3 <- sweep(prop_mat.2, 1, colSums(prop_mat.2*adj_mat), FUN = "+")
+prop_mat.3 <- relu(prop_mat.3)
 activity.3 <- rowMeans(prop_mat.3)
 
 activity_total <- c(activity.1, activity.2, activity.3)
@@ -262,6 +265,10 @@ for (i in seq_along(activity_total)) {
 
 activity_matrix <- do.call(rbind, activity_per_neuron)
 rownames(activity_matrix) <- rownames(adj_mat)
+```
+
+
+```{r}
 activity_matrix_scaled <- t(scale(t(activity_matrix)))
 dist_matrix <- dist(activity_matrix_scaled, method = "euclidean")
 hc <- hclust(dist_matrix, method = "ward.D2")
@@ -439,7 +446,7 @@ ggplot(pca_long, aes(x = PC1, y = PC2)) +
     stroke = 0
   ) +
   scale_color_manual(values = c("TRUE" = "red")) +
-  scale_alpha_continuous(range = c(0.1, 1)) +
+  scale_alpha_continuous(range = c(0.1, 0.7)) +
   facet_wrap(~ neuron, ncol = 4, scales = "fixed") +
   theme_minimal() +
   labs(
