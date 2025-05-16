@@ -183,6 +183,13 @@ E(g.int)$nt <- edge_nts
 RCy3::createNetworkFromIgraph(g.int)
 
 ```
+```{r}
+sigmoid <- function(input, mu = 0) {
+  1 / (1 + exp(-(input - mu)))
+}
+```
+
+
 
 Make adjacency matrix from network
 
@@ -239,15 +246,15 @@ in_mat <- matrix(1, nrow = nrow(adj_mat), ncol = ncol(adj_mat),
 in_mat[!log_mask] = 0
 # Step 1 propagation
 prop_mat.1 <- sweep(in_mat, 1, colSums(in_mat*adj_mat), FUN = "+")
-prop_mat.1 <- relu(prop_mat.1)
+#prop_mat.1 <- sigmoid(prop_mat.1)
 activity.1 <- rowMeans(prop_mat.1)
 # Step 2
 prop_mat.2 <- sweep(prop_mat.1, 1, colSums(prop_mat.1*adj_mat), FUN = "+")
-prop_mat.2 <- relu(prop_mat.2)
+#prop_mat.2 <- sigmoid(prop_mat.2)
 activity.2 <- rowMeans(prop_mat.2)
 # Step 3
 prop_mat.3 <- sweep(prop_mat.2, 1, colSums(prop_mat.2*adj_mat), FUN = "+")
-prop_mat.3 <- relu(prop_mat.3)
+#prop_mat.3 <- sigmoid(prop_mat.3)
 activity.3 <- rowMeans(prop_mat.3)
 
 activity_total <- c(activity.1, activity.2, activity.3)
@@ -262,6 +269,8 @@ for (i in seq_along(activity_total)) {
   }
 
 }
+
+
 
 activity_matrix <- do.call(rbind, activity_per_neuron)
 rownames(activity_matrix) <- rownames(adj_mat)
@@ -278,9 +287,15 @@ plot(hc, labels = rownames(activity_matrix_scaled), main = "Neuron Clustering")
 
 # Convert to a matrix: rows = patterns, cols = neuron-time features
 pattern_activity_matrix <- do.call(rbind, pattern_activity_list)
+pattern_activity_matrix <- pattern_activity_matrix +
+            matrix(rnorm(length(pattern_activity_matrix), 
+                         sd = 1e-8),
+                   nrow = nrow(pattern_activity_matrix))
+
 
 # Optional: scale (center and normalize features per neuron-time unit)
 pattern_activity_matrix_scaled <- scale(pattern_activity_matrix)
+pattern_activity_matrix_scaled[is.na(pattern_activity_matrix_scaled)]=0
 
 # Cluster: similarity between activation patterns
 dist_patterns <- dist(pattern_activity_matrix_scaled, method = "euclidean")
@@ -296,11 +311,12 @@ neurons <- colnames(adj_mat)
 activation_matrix <- do.call(rbind, lapply(logical_masks, function(mask) {
   setNames(colnames(adj_mat) %in% colnames(adj_mat)[mask], neurons)
 }))
+
 active_neuron_cols <- colSums(activation_matrix) > 0
 activation_matrix_filtered <- activation_matrix[, active_neuron_cols, drop = FALSE]
-active_neuron_cols <- colSums(activation_matrix) > 0
-activation_matrix_filtered <- activation_matrix[, active_neuron_cols, drop = FALSE]
-pheatmap(cor(activation_matrix_filtered, pattern_activity_matrix))
+corr <- cor(activation_matrix_filtered, pattern_activity_matrix)
+
+pheatmap(corr)
 ```
 cluster
 ```{r}
@@ -338,8 +354,15 @@ fancyRpartPlot(tree,type=5,caption=NULL)
 PCA
 ```{r}
 # Run PCA
-pca_res <- prcomp(pattern_activity_matrix_scaled, center = TRUE, scale. = TRUE)
-
+pca_res <- tryCatch(
+  {
+    prcomp(pattern_activity_matrix_scaled, center = TRUE, scale. = TRUE)
+  },
+  error = function(e) {
+    message("PCA failed with centering/scaling. Retrying without centering/scaling...")
+    prcomp(pattern_activity_matrix_scaled, center = FALSE, scale. = FALSE)
+  }
+)
 
 library(ggplot2)
 library(tidyr)
