@@ -18,9 +18,10 @@ library(ggplot2)
 library(reshape2)
 library(Matrix)
 
-conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
-mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.8')
+conna = neuprint_login(dataset='male-cns:v0.9',server='https://neuprint-cns.janelia.org/')
+mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.9')
 neuprint_get_synapses(13693,roi='VNC')
+setwd("/Users/fkampf/Documents/mcns.ccs/effective.connectivity.ccs/effective.connectivity.ccs.path.simulated.activity")
 ```
 
 ```{r setup, include=FALSE}
@@ -44,11 +45,19 @@ synapse_threshold=5
 mba<-mcns_body_annotations()
 mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
+
+list.fcell <- mba.static%>%filter(receptor_type=="putative_ppk25")%>%pull(type)%>%unique()
+list.mcell <- mba.static%>%filter(receptor_type=="putative_ppk23")%>%pull(type)%>%unique()
+list.ir52a <- mba.static%>%filter(receptor_type=="putative_IR52a")%>%pull(type)%>%unique()
+list.ir52b <- mba.static%>%filter(receptor_type=="putative_IR52b")%>%pull(type)%>%unique()
+
 mba <- mba %>%
   mutate(
     type = case_when(
-      grepl("putative_ppk23", receptor_type) ~ "m-cell",
-      grepl("putative_ppk25", receptor_type) ~ "f-cell",
+      type %in% list.mcell ~ "m-cell",
+      type %in% list.fcell ~ "f-cell",
+      type %in% list.ir52a ~ "ir52a-cell",
+      type %in% list.ir52b ~ "ir52b-cell",
       TRUE ~ type
     )
   )
@@ -61,6 +70,7 @@ fetch_connectivity <- function(synapse_threshold = 5) {
   connectivity <- cf_partners(cf_ids(malecns = mba %>% pull(bodyid)),
                               partners = 'o',
                               threshold = synapse_threshold)
+  connectivity <- connectivity %>%mutate(pre_id=as.double(pre_id),post_id=as.double(post_id))
   connectivity <- connectivity %>%
     left_join(mba %>%
                 select("type", "bodyid",'fru_dsx','consensus_nt','flywire_type','synonyms','receptor_type') %>%
@@ -78,21 +88,27 @@ fetch_connectivity <- function(synapse_threshold = 5) {
 ### 1.3 Load connectivity
 ```{r}
 conn <-fetch_connectivity()
-conn_save <- conn
+
+
 
 conn <- conn %>%
   mutate(
     pre_type = case_when(
-      grepl("putative_ppk23", pre_receptor_type) ~ "m-cell",
-      grepl("putative_ppk25", pre_receptor_type) ~ "f-cell",
+      pre_type %in% list.mcell ~ "m-cell",
+      pre_type %in% list.fcell ~ "f-cell",
+      pre_type %in% list.ir52a ~ "ir52a-cell",
+      pre_type %in% list.ir52b ~ "ir52b-cell",
       TRUE ~ pre_type
     ),
     post_type = case_when(
-      grepl("putative_ppk23", post_receptor_type) ~ "m-cell",
-      grepl("putative_ppk25", post_receptor_type) ~ "f-cell",
+      post_type %in% list.mcell ~ "m-cell",
+      post_type %in% list.fcell ~ "f-cell",
+      post_type %in% list.ir52a ~ "ir52a-cell",
+      post_type %in% list.ir52b ~ "ir52b-cell",
       TRUE ~ post_type
     )
   )
+conn_save <- conn
 ```
 
 ## 2 Adjacency matrix
@@ -144,8 +160,8 @@ calculate_normed_adj_matrix <-function(connectivity,cell.or.type='type',pre.or.p
 
 ### 2.1 Create adjacency matrix
 ```{r}
-conn<-conn_save
-conn<- conn%>%
+conn <-conn_save
+conn <- conn%>%
   mutate(pre_type=coalesce(pre_type,pre_fw_type),post_type=coalesce(post_type,post_fw_type))%>%
   mutate(pre_type=if_else(is.na(pre_type),as.character(bodyid),pre_type),
          post_type=if_else(is.na(post_type),as.character(partner),post_type))
@@ -164,73 +180,7 @@ g.prout.mcns <- graph_from_adjacency_matrix(
   diag = FALSE
 )
 ```
-#### 2.1.1 If by cell type and go back to type: Fix types
-```{r}
 
-#if cell has no type try to give it a fw type and if that failsgive it a id as a type
-mba$clean_type <- ifelse(is.na(mba$type), ifelse(is.na(mba$flywire_type),mba$bodyid,mba$flywire_type), mba$type)
-#here im just giving the cells that I cant find in mba their bodyid as their type
-mba_t<-bind_rows(mba,data_frame(bodyid=as.integer(setdiff(colnames(nam),mba$bodyid)),
-                         clean_type=setdiff(colnames(nam),mba$bodyid)))
-id_to_type <- setNames(mba$clean_type, mba$bodyid)
-id_to_type_t <- setNames(mba_t$clean_type, mba_t$bodyid)
-
-#id_to_type_all <- c(id_to_type)
-rownames(nam) <- id_to_type_t[rownames(nam)]
-colnames(nam) <- id_to_type_t[colnames(nam)]
-```
-#### 2.1.2 If by cell type and go back to type: Aggregate
-```{r}
-row_types <- rownames(nam)
-col_types <- colnames(nam)
-
-unique_row_types <- unique(row_types)
-unique_col_types <- unique(col_types)
-
-# Step 2: Build row and column aggregation matrices (one-hot encoded mappings)
-row_map <- sparseMatrix(
-  i = match(row_types, unique_row_types),
-  j = seq_along(row_types),
-  x = 1,
-  dims = c(length(unique_row_types), length(row_types))
-)
-
-col_map <- sparseMatrix(
-  i = seq_along(col_types),
-  j = match(col_types, unique_col_types),
-  x = 1,
-  dims = c(length(col_types), length(unique_col_types))
-)
-
-# Step 3: Aggregate by type using matrix multiplication
-# row_map %*% adj %*% col_map averages total sums, so we divide manually
-
-adj_summed <- row_map %*% nam %*% col_map
-
-# Step 4: Normalize by number of contributing rows and columns
-row_counts <- table(row_types)[unique_row_types]
-col_counts <- table(col_types)[unique_col_types]
-epsilon <- 1e-10  # small
-row_div <- Diagonal(x = 1 / (as.numeric(row_counts) + epsilon))
-col_div <- Diagonal(x = 1 / (as.numeric(col_counts) + epsilon))
-
-
-nam_avg <- row_div %*% adj_summed %*% col_div
-
-# Step 5: Set dimnames
-rownames(nam_avg) <- unique_row_types
-colnames(nam_avg) <- unique_col_types
-
-# Step 6: Transform to graph
-nam_thresholded <-nam_avg
-
-g.prout.mcns <- graph_from_adjacency_matrix(
-  nam_thresholded,
-  mode = "directed",
-  weighted = TRUE,
-  diag = FALSE
-)
-```
 
 Targets
 ```{r}
@@ -240,9 +190,21 @@ start_types <- cf_partners(cf_ids(malecns = mba%>%
                                    pull(bodyid)%>%
                                    unique()),
                           partners='i',threshold=5)%>%
+  left_join(mba%>%select(receptor_type,bodyid),by=c('partner'='bodyid'))%>%
+  mutate(
+    type = case_when(
+      type %in% list.mcell ~ "m-cell",
+      type %in% list.fcell ~ "f-cell",
+      type %in% list.ir52a ~ "ir52a-cell",
+      type %in% list.ir52b ~ "ir52b-cell",
+      TRUE ~ type
+    )
+  )%>%
   filter(superclass=='vnc_sensory')%>%
-  filter(!is.na(type))%>%pull(type)%>%
+  filter(!is.na(type))%>%
+  pull(type)%>%
   unique()
+
 
 
 #targets
@@ -272,7 +234,7 @@ cell_types <- c('CB1076','CB1078', 'CB3710', 'CB2521','CB1542', 'CB1038', 'CB142
 cell_types <- c('(JO-B)') #only JO-B
 
 cell_types <- c('f-cell','m-cell','AN09B017','AN05B102')
-#cell_types <- c('CB1542','CB1078')
+cell_types <- c('CB1542','CB1078')
 cell_types <- start_types
 
 target_cells <- c("vpoEN",'CB1385',"vpoEN",'CB1385')  # List of target cells
@@ -427,7 +389,7 @@ try(g.sub.prout.mcns <- delete_edges(g.sub.prout.mcns, edges_to_delete),silent=T
 
 node_names <- V(g.sub.prout.mcns)$name
 
-distance_to_start <- shortest.paths(g.sub.prout.mcns, to = V(g.sub.prout.mcns)[name %in% start_types], weights = NA)
+distance_to_start <- shortest.paths(g.sub.prout.mcns, to = V(g.sub.prout.mcns)[name %in% cell_types], weights = NA)
 
 V(g.sub.prout.mcns)$distance_to_start <- ifelse(node_names %in% start_types, 0, as.integer(distance_to_start))
 
@@ -468,7 +430,7 @@ V(g.sub.prout.mcns)$nt <- nt_for_vertices
 try(V(g.sub.prout.mcns)$fru_dsx <- fru_dsx_for_vertices)
 
 el<- as_edgelist(g.sub.prout.mcns)
-is_p1p1 <- grepl("^P1_", el[, 1])# & grepl("^P1_", el[, 2])
+is_p1p1 <- grepl("^P1_", el[, 1]) & grepl("^P1_", el[, 2])
 E(g.sub.prout.mcns)$is_p1_p1 <- is_p1p1
 
 rename_dict <- list(
@@ -501,7 +463,97 @@ V(g.sub.prout.mcns)$name <- sapply(V(g.sub.prout.mcns)$name, function(x) ifelse(
 
 E(g.sub.prout.mcns)$weight<-E(g.sub.prout.mcns)$weight*100
 
-RCy3::createNetworkFromIgraph(g.sub.prout.mcns)
+#clean up edges 
+
+
+
+
+important.neurons.list <- c('AN09B017','AN05B102')
+repeat {
+  prev_edges    <- ecount(g.sub.prout.mcns)
+  prev_vertices <- vcount(g.sub.prout.mcns)
+
+  # 1. Delete weak edges only if their source is not in important_neuron
+  weak_edges <- E(g.sub.prout.mcns)[ 
+    weight < 4 & 
+    ! (ends(g.sub.prout.mcns, E(g.sub.prout.mcns))[,1] %in% important.neurons.list)
+  ]
+  if (length(weak_edges)) {
+    g.sub.prout.mcns <- delete_edges(g.sub.prout.mcns, weak_edges)
+  }
+  
+  g.sub.prout.mcns <- delete_edges(
+    g.sub.prout.mcns,
+    E(g.sub.prout.mcns)[ weight < 1 ]
+  )
+  
+
+  # 2. Delete all vertices with no remaining edges
+  g.sub.prout.mcns <- delete_vertices(
+    g.sub.prout.mcns,
+    V(g.sub.prout.mcns)[ degree(g.sub.prout.mcns) == 0 ]
+  )
+
+  # 3. Keep only vertices with in‐degree > 0 or in start_types
+  g.sub.prout.mcns <- induced_subgraph(
+    g.sub.prout.mcns,
+    vids = V(g.sub.prout.mcns)[
+      degree(g.sub.prout.mcns, mode = "in") > 0 |
+        name %in% start_types
+    ]
+  )
+
+  # 4. Keep only vertices with out‐degree > 0 or in target_types
+  g.sub.prout.mcns <- induced_subgraph(
+    g.sub.prout.mcns,
+    vids = V(g.sub.prout.mcns)[
+      degree(g.sub.prout.mcns, mode = "out") > 0 |
+        name %in% target_types
+    ]
+  )
+
+  new_edges    <- ecount(g.sub.prout.mcns)
+  new_vertices <- vcount(g.sub.prout.mcns)
+
+  if (new_edges == prev_edges && new_vertices == prev_vertices) {
+    message("Pruning converged: ", new_vertices, " vertices and ", new_edges, " edges remain")
+    break
+  }
+}
+
+
+
+
+library(RCy3)
+
+# generate timestamp for unique naming
+timestamp   <- format(Sys.time(), "%Y%m%d%H%M%S")
+networkName <- paste0("path.simulated.activity", timestamp)
+fileName    <- paste0(networkName, ".cx")
+
+# create output folder if it does not exist
+outputDir <- file.path(getwd(), "output", "networks")
+if (! dir.exists(outputDir)) {
+  dir.create(outputDir, recursive = TRUE)
+}
+
+# full paths
+graphmlPath <- file.path(outputDir, fileName)
+
+# 1. create the network in Cytoscape
+cy_net <- createNetworkFromIgraph(
+  g.sub.prout.mcns,
+  title      = networkName,
+  collection = "vAB3.PPN1.inputs.to.P1.and.similar"
+)
+
+# 2. export the network to GraphML
+exportNetwork(
+  filename = graphmlPath,
+  type     = "CX"
+)
+
+
 
 
 ```
@@ -569,11 +621,8 @@ t3 <- t2 + transmit2
 
 code function
 ```{r}
-simulate <- function(g, start,epochs=100,stim_epochs=5){
-  
-  
-}
 
+g <- g.sub.prout.mcns
 
 excitatory <- c("acetylcholine", "glutamate", "serotonin", "dopamine", "octopamine")
 inhibitory <- c("gaba")
@@ -607,23 +656,58 @@ transmit0 = colSums(adj.reduced[colnames(t0[i,t0[i,]!=0]),] * nt[colnames(t0[i,t
 next_step <- (t0[i,]*0.8-0.1)+t(data.frame(transmit0))
 t0<-rbind(t0,next_step)
 rownames(t0)<-seq(1,dim(t0)[1])}
-pheatmap(t(t0),
-         cluster_rows=T,
-         cluster_cols = F,  
-         fontsize_row   = 4,
-         fontsize_col   = 6,  
-         cellheight     = 4,      # default ~10
-         cellwidth      = 4)
-matplot(
-    series,
-    type = "l",
-    lty  = 1,
-    xaxt = "n",
-    xlab = "Timestep",
-    ylab = "Value"
+t0.normed <- sweep(t0, 2, V(g.sub.prout.mcns)$distance_to_start+1, FUN = "*") 
+
+
+#plotting
+
+timestamp  <- format(Sys.time(), "%Y%m%d%H%M%S")
+graphName0 <- paste0("activity.heatmap.clustered_", timestamp)
+graphName1 <- paste0("activity.trace_",            timestamp)
+fileName0  <- paste0(graphName0, ".png")
+fileName1  <- paste0(graphName1, ".png")
+
+outputDir0 <- file.path(getwd(), "output", "activity.heatmap")
+outputDir1 <- file.path(getwd(), "output", "activity.trace")
+dir.create(outputDir0, recursive = TRUE, showWarnings = FALSE)
+dir.create(outputDir1, recursive = TRUE, showWarnings = FALSE)
+
+pngPath0 <- file.path(outputDir0, fileName0)
+pngPath1 <- file.path(outputDir1, fileName1)
+
+# 2. draw & save the clustered heatmap
+png(filename = pngPath0, width = 2800, height = 3500, res = 300)
+pheatmap(
+  t(t0.normed),
+  cluster_rows  = TRUE,
+  cluster_cols  = FALSE,
+  fontsize_row  = 4,
+  fontsize_col  = 6,
+  cellheight    = 4,
+  cellwidth     = 4,
+  main          = graphName0
 )
-series <- as.matrix(t0[ , setdiff(names(t0), "time")])
-axis(1, at = 1:nrow(series), labels = 1:nrow(series))
+dev.off()
+
+# 3. draw & save the activity trace
+series <- as.matrix(t0)
+png(filename = pngPath1, width = 1500, height = 1000, res = 300)
+matplot(
+  series,
+  type  = "l",
+  lty   = 1,
+  xaxt  = "n",
+  xlab  = "Timestep",
+  ylab  = "Value",
+  main  = graphName1
+)
+axis(1, at = seq_len(nrow(series)), labels = seq_len(nrow(series)))
+dev.off()
+
+message(
+  "Saved heatmap to: ", pngPath0, "\n",
+  "Saved trace   to: ", pngPath1
+)
 ```
 
 
