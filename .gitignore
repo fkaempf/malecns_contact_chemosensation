@@ -13,3 +13,5 @@ VennDiagram.*.log
 *.afdesign~lock~
 *.png
 *.pdf
+*.html
+.html

@@ -8,7 +8,9 @@ library(malecns)
 library(coconatfly)
 library(fafbseg)
 library(neuprintr)
-
+library(grid)
+library(ggplot2)
+library(patchwork)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
@@ -35,12 +37,12 @@ synapse_threshold=5
 mba<-mcns_body_annotations()
 mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
-
+setwd("/Users/fkampf/Documents/mcns.ccs/interneuron.exploration")
 ```
 ## 1.2 Get neuprint connection
 ```{r}
-conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
-mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.8')
+conna = neuprint_login(dataset='male-cns:v0.9',server='https://neuprint-cns.janelia.org/')
+mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.9')
 ```
 
 
@@ -50,12 +52,15 @@ mcns.rois = neuprint_ROIs(dataset = 'male-cns:v0.8')
 #### 2.1.1.1 Fetch IDs
 ```{r}
 IN05B002.ids <- mba%>%filter(type=='IN05B002')%>%pull(bodyid)
-IN05B002.synapses <- list(neuprint_get_synapses(IN05B002.ids[[1]],roi='VNC'),
-                       neuprint_get_synapses(IN05B002.ids[[2]],roi='VNC'))
+IN05B002.synapses <- list(neuprint_get_synapses(IN05B002.ids[[1]],roi='VNC')%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                          neuprint_get_synapses(IN05B002.ids[[2]],roi='VNC')%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')))
 IN05B002.synapses[[1]]$prepost<- as.factor(IN05B002.synapses[[1]]$prepost)
 IN05B002.synapses[[2]]$prepost<- as.factor(IN05B002.synapses[[2]]$prepost)
 
-IN05B002.synapses.all <- neuprint_get_synapses(IN05B002.ids)%>%mutate(prepost=ifelse(prepost==1,'input','output'))
+IN05B002.synapses.all <- neuprint_get_synapses(IN05B002.ids)%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output'))
 mcell.ids <- mba %>% 
     filter(str_detect(receptor_type, "ppk23")) %>%
     pull(bodyid)
@@ -79,64 +84,158 @@ IN05B002.synapses.all<-IN05B002.synapses.all%>%mutate(prepost=if_else((prepost==
 set.seed(42)  # for reproducibility
 IN05B002.synapses[[1]]$cluster <- kmeans(IN05B002.synapses[[1]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
 IN05B002.synapses[[2]]$cluster <- kmeans(IN05B002.synapses[[2]]%>%select(x,y,z), centers = 6, nstart = 25)$cluster
-
+IN05B002.synapses
 ```
 #### 2.1.1.3 Viz
 ```{r}
-p1 <- ggplot(IN05B002.synapses[[1]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 1, alpha = 0.01) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+p1.xz <- ggplot(IN05B002.synapses[[1]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == IN05B002.ids[1]) %>% pull(type), ": ", IN05B002.ids[1])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+p1.xy <- ggplot(IN05B002.synapses[[1]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B002.ids[1]) %>% pull(type), ": ", IN05B002.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 # Second plot
-p2 <- ggplot(IN05B002.synapses[[2]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 1, alpha = 0.01) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+p2.xz <- ggplot(IN05B002.synapses[[2]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == IN05B002.ids[2]) %>% pull(type), ": ", IN05B002.ids[2])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
-# Combine the two plots side by side
-p1 + p2
+p2.xy <- ggplot(IN05B002.synapses[[2]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B002.ids[2]) %>% pull(type), ": ", IN05B002.ids[2])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#save
+combined0 <- (p1.xy+p2.xy)
+combined1 <- (p1.xz+p2.xz)
+
+outputDir <- file.path(getwd(), "output.polarity.exploration", "synapse.location")
+if (! dir.exists(outputDir)) {
+  dir.create(outputDir, recursive = TRUE)
+}
+
+timestamp   <- format(Sys.time(), "%Y%m%d%H%M%S")
+graphName0 <- paste0("IN05B002.synapse.location.xy_", timestamp)
+graphName1 <- paste0("IN05B002.synapse.location.xz_", timestamp)
+fileName0    <- paste0(graphName0, ".png")
+fileName1    <- paste0(graphName1, ".png")
+fullpath0 <- file.path(outputDir, fileName0)
+fullpath1 <- file.path(outputDir, fileName1)
+
+g0 <- grid.grabExpr(print(combined0))
+g1 <- grid.grabExpr(print(combined1))
+
+ggsave(
+  filename = fullpath0,
+  plot     = g0,
+  units    = "in",
+  dpi      = 600,
+  limitsize= FALSE
+)
+ggsave(
+  filename = fullpath1,
+  plot     = g1,
+  units    = "in",
+  dpi      = 600,
+  limitsize= FALSE
+)
+combined0
+combined1
 ```
 #### 2.1.1.4 3D-Viz
 ```{r}
-
-plot_ly(
+library(plotly)
+library(htmlwidgets)
+widget<- plot_ly(
   data = IN05B002.synapses.all,
   x = ~x,
   y = ~z,
   z = ~-y,
   color = ~prepost,
-  colors = c("yellow","red","green", "blue"),
+  colors = c("purple","red","green", "blue"),
   type = "scatter3d",
   mode = "markers",
-  marker = list(size = 1)
-)%>%
+  marker = list(size = 1))%>%
   layout(
     scene = list(
       aspectmode = "data"  # ensures equal scaling across x, y, z
     )
   )
+outputDir <- file.path(getwd(), "output.polarity.exploration",'synapse.location', "interactive")
+dir.create(outputDir, recursive = TRUE, showWarnings = FALSE)
+htmlFile <- file.path(outputDir, "IN05B002.synapses.html")
+saveWidget(widget, htmlFile, selfcontained = TRUE)
+unlink(sub("\\.html$", "_files", htmlFile), recursive = TRUE, force = TRUE)
 ```
 
 #### 2.1.1.5 Asymetry M/F input
 ```{r}
-print(IN05B002.synapses.all%>%group_by(prepost)%>%summarize(weight=n()))
+print(IN05B011.synapses.all%>%group_by(prepost)%>%summarize(weight=n(),weight.normed=n()/length(IN05B002.ids)))
 ```
 
 ### 2.1.2 IN05B011
 #### 2.1.2.1 Fetch IDs
 ```{r}
 IN05B011.ids <- mba%>%filter(type=='IN05B011')%>%pull(bodyid)
-IN05B011.synapses <- list(neuprint_get_synapses(IN05B011.ids[[1]]),
-                       neuprint_get_synapses(IN05B011.ids[[2]]),
-                       neuprint_get_synapses(IN05B011.ids[[3]]),
-                       neuprint_get_synapses(IN05B011.ids[[4]]))
+IN05B011.synapses <- list(neuprint_get_synapses(IN05B011.ids[[1]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(IN05B011.ids[[2]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(IN05B011.ids[[3]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(IN05B011.ids[[4]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')))
 IN05B011.synapses[[1]]$prepost<- as.factor(IN05B011.synapses[[1]]$prepost)
 IN05B011.synapses[[2]]$prepost<- as.factor(IN05B011.synapses[[2]]$prepost)
 IN05B011.synapses[[3]]$prepost<- as.factor(IN05B011.synapses[[3]]$prepost)
@@ -164,49 +263,192 @@ IN05B011.synapses[[4]]$cluster <- kmeans(IN05B011.synapses[[4]]%>%select(x,y,z),
 #### 2.1.2.3 Viz
 ```{r}
 p1.xz <- ggplot(IN05B011.synapses[[4]], aes(x = x, y = y, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[4]) %>% pull(type), ": ", IN05B011.ids[4])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 p1.xy <- ggplot(IN05B011.synapses[[4]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[4]) %>% pull(type), ": ", IN05B011.ids[4])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 # Second plot
 p2.xz <- ggplot(IN05B011.synapses[[2]], aes(x = x, y = y, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[2]) %>% pull(type), ": ", IN05B011.ids[2])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 p2.xy <- ggplot(IN05B011.synapses[[2]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[2]) %>% pull(type), ": ", IN05B011.ids[2])) +
-  theme_minimal()
-# Combine the two plots side by side
-(p1.xy+p2.xy)/(p1.xz+p2.xz)
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#third plot
+p3.xz <- ggplot(IN05B011.synapses[[3]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[3]) %>% pull(type), ": ", IN05B011.ids[3])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+p3.xy <- ggplot(IN05B011.synapses[[3]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[3]) %>% pull(type), ": ", IN05B011.ids[3])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#fourth plot
+p4.xz <- ggplot(IN05B011.synapses[[1]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[1]) %>% pull(type), ": ", IN05B011.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+p4.xy <- ggplot(IN05B011.synapses[[1]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == IN05B011.ids[1]) %>% pull(type), ": ", IN05B011.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+
+#save
+combined0 <- (p1.xy+p2.xy+p3.xy+p4.xy)
+combined1 <- (p1.xz+p2.xz+p3.xz+p4.xz)
+
+outputDir <- file.path(getwd(), "output.polarity.exploration", "synapse.location")
+if (! dir.exists(outputDir)) {
+  dir.create(outputDir, recursive = TRUE)
+}
+
+timestamp   <- format(Sys.time(), "%Y%m%d%H%M%S")
+graphName0 <- paste0("IN05B011.synapse.location.xy_", timestamp)
+graphName1 <- paste0("IN05B011.synapse.location.xz_", timestamp)
+fileName0    <- paste0(graphName0, ".png")
+fileName1    <- paste0(graphName1, ".png")
+fullpath0 <- file.path(outputDir, fileName0)
+fullpath1 <- file.path(outputDir, fileName1)
+
+g0 <- grid.grabExpr(print(combined0))
+g1 <- grid.grabExpr(print(combined1))
+
+ggsave(
+  filename = fullpath0,
+  plot     = g0,
+  units    = "in",
+  dpi      = 600,
+  limitsize= FALSE
+)
+ggsave(
+  filename = fullpath1,
+  plot     = g1,
+  units    = "in",
+  dpi      = 600,
+  limitsize= FALSE
+)
+combined0
+combined1
+
 ```
 #### 2.1.2.4 3D-Viz
 ```{r}
 
-plot_ly(
+widget<-plot_ly(
   data = IN05B011.synapses.all,
   x = ~x,
   y = ~z,
   z = ~-y,
   color = ~prepost,
-  colors = c("yellow","red","green", "blue"),
+  colors = c("purple","red","green", "blue"),
   type = "scatter3d",
   mode = "markers",
   marker = list(size = 1)
@@ -216,6 +458,12 @@ plot_ly(
       aspectmode = "data"  # ensures equal scaling across x, y, z
     )
   )
+
+outputDir <- file.path(getwd(), "output.polarity.exploration",'synapse.location', "interactive")
+dir.create(outputDir, recursive = TRUE, showWarnings = FALSE)
+htmlFile <- file.path(outputDir, "IN05B011.synapses.html")
+saveWidget(widget, htmlFile, selfcontained = TRUE)
+unlink(sub("\\.html$", "_files", htmlFile), recursive = TRUE, force = TRUE)
 ```
 #### 2.1.1.5 Asymetry M/F input
 ```{r}
@@ -228,10 +476,14 @@ print(IN05B011.synapses.all%>%group_by(prepost)%>%summarize(weight=n(),weight.no
 #### 2.2.1.1 Fetch IDs
 ```{r}
 AN09B017.ids <- mba%>%filter(type=='AN09B017')%>%pull(bodyid)
-AN09B017.synapses <- list(neuprint_get_synapses(AN09B017.ids[[1]]),
-                       neuprint_get_synapses(AN09B017.ids[[2]]),
-                       neuprint_get_synapses(AN09B017.ids[[3]]),
-                       neuprint_get_synapses(AN09B017.ids[[4]]))
+AN09B017.synapses <- list(neuprint_get_synapses(AN09B017.ids[[1]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(AN09B017.ids[[2]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(AN09B017.ids[[3]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(AN09B017.ids[[4]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')))
 AN09B017.synapses[[1]]$prepost<- as.factor(AN09B017.synapses[[1]]$prepost)
 AN09B017.synapses[[2]]$prepost<- as.factor(AN09B017.synapses[[2]]$prepost)
 AN09B017.synapses[[3]]$prepost<- as.factor(AN09B017.synapses[[3]]$prepost)
@@ -259,49 +511,197 @@ AN09B017.synapses[[4]]$cluster <- kmeans(AN09B017.synapses[[4]]%>%select(x,y,z),
 #### 2.2.1.3 Viz
 ```{r}
 p1.xz <- ggplot(AN09B017.synapses[[4]], aes(x = x, y = y, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[4]) %>% pull(type), ": ", AN09B017.ids[4])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 p1.xy <- ggplot(AN09B017.synapses[[4]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[4]) %>% pull(type), ": ", AN09B017.ids[4])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 # Second plot
 p2.xz <- ggplot(AN09B017.synapses[[2]], aes(x = x, y = y, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[2]) %>% pull(type), ": ", AN09B017.ids[2])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 p2.xy <- ggplot(AN09B017.synapses[[2]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[2]) %>% pull(type), ": ", AN09B017.ids[2])) +
-  theme_minimal()
-# Combine the two plots side by side
-(p1.xy+p2.xy)/(p1.xz+p2.xz)
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#third plot
+p3.xz <- ggplot(AN09B017.synapses[[3]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[3]) %>% pull(type), ": ", AN09B017.ids[3])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+p3.xy <- ggplot(AN09B017.synapses[[3]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[3]) %>% pull(type), ": ", AN09B017.ids[3])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#fourth plot
+p4.xz <- ggplot(AN09B017.synapses[[1]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[1]) %>% pull(type), ": ", AN09B017.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+p4.xy <- ggplot(AN09B017.synapses[[1]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN09B017.ids[1]) %>% pull(type), ": ", AN09B017.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+
+#save
+combined0 <- (p1.xy+p2.xy+p3.xy+p4.xy)+
+  plot_layout(nrow = 1)
+combined1 <- (p1.xz+p2.xz+p3.xz+p4.xz)+
+  plot_layout(nrow = 1)
+
+outputDir <- file.path(getwd(), "output.polarity.exploration", "synapse.location")
+if (! dir.exists(outputDir)) {
+  dir.create(outputDir, recursive = TRUE)
+}
+
+timestamp   <- format(Sys.time(), "%Y%m%d%H%M%S")
+graphName0 <- paste0("AN09B017.synapse.location.xy_", timestamp)
+graphName1 <- paste0("AN09B017.synapse.location.xz_", timestamp)
+fileName0    <- paste0(graphName0, ".png")
+fileName1    <- paste0(graphName1, ".png")
+fullpath0 <- file.path(outputDir, fileName0)
+fullpath1 <- file.path(outputDir, fileName1)
+
+g0 <- grid.grabExpr(print(combined0))
+g1 <- grid.grabExpr(print(combined1))
+
+ggsave(
+  filename = fullpath0,
+  plot     = g0,
+  units    = "in",
+    width= 20,
+  height = 8,
+  dpi      = 600,
+  limitsize= FALSE
+)
+ggsave(
+  filename = fullpath1,
+  plot     = g1,
+  width= 20,
+  height = 5,
+  units    = "in",
+  dpi      = 600,
+  limitsize= FALSE
+)
+combined0
+combined1
 ```
 #### 2.2.1.4 3D-Viz
 ```{r}
 
-plot_ly(
+widget<-plot_ly(
   data = AN09B017.synapses.all,
   x = ~x,
   y = ~z,
   z = ~-y,
   color = ~prepost,
-  colors = c("yellow","red","green", "blue"),
+  colors = c("purple","red","green", "blue"),
   type = "scatter3d",
   mode = "markers",
   marker = list(size = 1)
@@ -311,6 +711,11 @@ plot_ly(
       aspectmode = "data"  # ensures equal scaling across x, y, z
     )
   )
+outputDir <- file.path(getwd(), "output.polarity.exploration",'synapse.location', "interactive")
+dir.create(outputDir, recursive = TRUE, showWarnings = FALSE)
+htmlFile <- file.path(outputDir, "AN09B017.synapses.html")
+saveWidget(widget, htmlFile, selfcontained = TRUE)
+unlink(sub("\\.html$", "_files", htmlFile), recursive = TRUE, force = TRUE)
 ```
 #### 2.2.1.5 Asymetry M/F input
 ```{r}
@@ -322,10 +727,14 @@ print(AN09B017.synapses.all%>%group_by(prepost)%>%summarize(weight=n(),weight.no
 #### 2.2.2.1 Fetch IDs
 ```{r}
 AN05B102.ids <- mba%>%filter(type=='AN05B102')%>%pull(bodyid)
-AN05B102.synapses <- list(neuprint_get_synapses(AN05B102.ids[[1]]),
-                       neuprint_get_synapses(AN05B102.ids[[2]]),
-                       neuprint_get_synapses(AN05B102.ids[[3]]),
-                       neuprint_get_synapses(AN05B102.ids[[4]]))
+AN05B102.synapses <- list(neuprint_get_synapses(AN05B102.ids[[1]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(AN05B102.ids[[2]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(AN05B102.ids[[3]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')),
+                       neuprint_get_synapses(AN05B102.ids[[4]])%>%
+                            mutate(prepost=ifelse(prepost==1,'input','output')))
 AN05B102.synapses[[1]]$prepost<- as.factor(AN05B102.synapses[[1]]$prepost)
 AN05B102.synapses[[2]]$prepost<- as.factor(AN05B102.synapses[[2]]$prepost)
 AN05B102.synapses[[3]]$prepost<- as.factor(AN05B102.synapses[[3]]$prepost)
@@ -353,49 +762,197 @@ AN05B102.synapses[[4]]$cluster <- kmeans(AN05B102.synapses[[4]]%>%select(x,y,z),
 #### 2.2.2.3 Viz
 ```{r}
 p1.xz <- ggplot(AN05B102.synapses[[4]], aes(x = x, y = y, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[4]) %>% pull(type), ": ", AN05B102.ids[4])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 p1.xy <- ggplot(AN05B102.synapses[[4]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[4]) %>% pull(type), ": ", AN05B102.ids[4])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 # Second plot
 p2.xz <- ggplot(AN05B102.synapses[[2]], aes(x = x, y = y, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[2]) %>% pull(type), ": ", AN05B102.ids[2])) +
-  theme_minimal()
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
 
 p2.xy <- ggplot(AN05B102.synapses[[2]], aes(x = x, y = z, color = prepost)) +
-  geom_point(size = 0.1, alpha = 0.5) +
-  scale_color_manual(values = c('1' = "blue", '0' = "red")) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
   scale_y_reverse() +
   coord_fixed() +
   ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[2]) %>% pull(type), ": ", AN05B102.ids[2])) +
-  theme_minimal()
-# Combine the two plots side by side
-(p1.xy+p2.xy)/(p1.xz+p2.xz)
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#third plot
+p3.xz <- ggplot(AN05B102.synapses[[3]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[3]) %>% pull(type), ": ", AN05B102.ids[3])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+p3.xy <- ggplot(AN05B102.synapses[[3]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[3]) %>% pull(type), ": ", AN05B102.ids[3])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+#fourth plot
+p4.xz <- ggplot(AN05B102.synapses[[1]], aes(x = x, y = y, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[1]) %>% pull(type), ": ", AN05B102.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+p4.xy <- ggplot(AN05B102.synapses[[1]], aes(x = x, y = z, color = prepost)) +
+  geom_point(size = 0.1, alpha = 0.01) +
+  scale_color_manual(values = c('input' = "blue", 'output' = "red")) +
+  scale_y_reverse() +
+  coord_fixed() +
+  ggtitle(paste(mba %>% filter(bodyid == AN05B102.ids[1]) %>% pull(type), ": ", AN05B102.ids[1])) +
+  theme_minimal()+
+    guides(
+    colour = guide_legend(
+      override.aes = list(alpha = 1, size = 2)
+    )
+  )+
+    theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank()
+  )
+
+
+#save
+combined0 <- (p1.xy+p2.xy+p3.xy+p4.xy)+
+  plot_layout(nrow = 1)
+combined1 <- (p1.xz+p2.xz+p3.xz+p4.xz)+
+  plot_layout(nrow = 1)
+
+outputDir <- file.path(getwd(), "output.polarity.exploration", "synapse.location")
+if (! dir.exists(outputDir)) {
+  dir.create(outputDir, recursive = TRUE)
+}
+
+timestamp   <- format(Sys.time(), "%Y%m%d%H%M%S")
+graphName0 <- paste0("AN05B102.synapse.location.xy_", timestamp)
+graphName1 <- paste0("AN05B102.synapse.location.xz_", timestamp)
+fileName0    <- paste0(graphName0, ".png")
+fileName1    <- paste0(graphName1, ".png")
+fullpath0 <- file.path(outputDir, fileName0)
+fullpath1 <- file.path(outputDir, fileName1)
+
+g0 <- grid.grabExpr(print(combined0))
+g1 <- grid.grabExpr(print(combined1))
+
+ggsave(
+  filename = fullpath0,
+  plot     = g0,
+  units    = "in",
+    width= 20,
+  height = 8,
+  dpi      = 600,
+  limitsize= FALSE
+)
+ggsave(
+  filename = fullpath1,
+  plot     = g1,
+  width= 20,
+  height = 5,
+  units    = "in",
+  dpi      = 600,
+  limitsize= FALSE
+)
+combined0
+combined1
 ```
 #### 2.2.2.4 3D-Viz
 ```{r}
 
-plot_ly(
+widget<-plot_ly(
   data = AN05B102.synapses.all,
   x = ~x,
   y = ~z,
   z = ~-y,
   color = ~prepost,
-  colors = c("yellow","red","green", "blue"),
+  colors = c("purple","red","green", "blue"),
   type = "scatter3d",
   mode = "markers",
   marker = list(size = 1)
@@ -405,6 +962,12 @@ plot_ly(
       aspectmode = "data"  # ensures equal scaling across x, y, z
     )
   )
+outputDir <- file.path(getwd(), "output.polarity.exploration",'synapse.location', "interactive")
+dir.create(outputDir, recursive = TRUE, showWarnings = FALSE)
+htmlFile <- file.path(outputDir, "AN05B102.synapses.html")
+saveWidget(widget, htmlFile, selfcontained = TRUE)
+unlink(sub("\\.html$", "_files", htmlFile), recursive = TRUE, force = TRUE)
+widget
 ```
 #### 2.2.2.4 Asymetry M/F input
 ```{r}
@@ -535,8 +1098,44 @@ cfps.fused.bristle.out.syn.normed <- cfps.fused.bristle.out %>%left_join(post.al
   mutate(post.normed.weight_mcell=weight_mcell/weight,
          post.normed.weight_fcell=weight_fcell/weight)
 ```
+save plotly function
+```{r}
+save.plotly <- function(widget,path,name){
+  outputDir <- file.path(getwd(), paste(path, collapse = "/"))
+  dir.create(outputDir, recursive = TRUE, showWarnings = FALSE)
+  htmlFile <- file.path(outputDir,paste(c(name,'html'), collapse = "."))
+  saveWidget(widget, htmlFile, selfcontained = TRUE)
+  unlink(sub("\\.html$", "_files", htmlFile), recursive = TRUE, force = TRUE)
+  print(htmlFile)
+}
 
-#plots with size corresponding to coutput to AN05B102
+my.gg.save <- function(combined,path,name){
+  outputDir <- file.path(getwd(), paste(path, collapse = "/"))
+  dir.create(outputDir, recursive = TRUE, showWarnings = FALSE)
+  
+  timestamp   <- format(Sys.time(), "%Y%m%d%H%M%S")
+  graphName <- paste0(name,"_", timestamp)
+  fileName    <- paste0(graphName, ".png")
+  fullpath <- file.path(outputDir, fileName)
+  
+  g <- grid.grabExpr(print(combined))
+  
+  ggsave(
+    filename = fullpath,
+    plot     = g,
+    units    = "in",
+    dpi      = 600,
+    limitsize= FALSE
+  )
+  combined
+}
+
+```
+
+
+
+
+#plots with size corresponding to output to AN05B102
 ```{r}
 
 #1
@@ -564,8 +1163,10 @@ p1 <- ggplot(cfps.fused.bristle.out,
   ) +
   theme_minimal()
 
-ggplotly(p1, tooltip = c("label", "size", "color"))
-p1
+widget<-ggplotly(p1, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.bristle.output.total.weight.AN05B102')
+my.gg.save(p1,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.bristle.output.total.weight.AN05B102')
+
 #2
 p2 <- ggplot(cfps.fused.bristle.out, 
              aes(x = normed.weight_fcell, 
@@ -590,8 +1191,10 @@ p2 <- ggplot(cfps.fused.bristle.out,
   ) +
   theme_minimal()
 
-ggplotly(p2, tooltip = c("label", "size", "color"))
-p2
+widget<- ggplotly(p2, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.bristle.output.normed.ncells.AN05B102')
+my.gg.save(p2,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.bristle.output.normed.ncells.AN05B102')
+
 #5
 p5 <- ggplot(cfps.fused.bristle.out.syn.normed, 
              aes(x = post.normed.weight_fcell, 
@@ -616,8 +1219,9 @@ p5 <- ggplot(cfps.fused.bristle.out.syn.normed,
   ) +
   theme_minimal()
 
-ggplotly(p5, tooltip = c("label", "size", "color"))
-p5
+widget<-ggplotly(p5, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.bristle.output.normed.post.in.AN05B102')
+my.gg.save(p5,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.bristle.output.normed.post.in.AN05B102')
 
 #3
 p3 <- ggplot(cfps.fused.out, 
@@ -643,8 +1247,9 @@ p3 <- ggplot(cfps.fused.out,
   ) +
   theme_minimal()
 
-ggplotly(p3, tooltip = c("label", "size", "color"))
-p3
+widget<-ggplotly(p3, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.output.total.weight.AN05B102')
+my.gg.save(p3,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.output.total.weight.AN05B102')
 #4
 p4 <- ggplot(cfps.fused.out, 
              aes(x = normed.weight_fcell, 
@@ -669,9 +1274,10 @@ p4 <- ggplot(cfps.fused.out,
   ) +
   theme_minimal()
 
-ggplotly(p4, tooltip = c("label", "size", "color"))
+widget<- ggplotly(p4, tooltip = c("label", "size", "color"))
 
-p4
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.output.normed.ncells.AN05B102')
+my.gg.save(p4,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.output.normed.ncells.AN05B102')
 
 #6
 p6 <- ggplot(cfps.fused.out.syn.normed, 
@@ -697,9 +1303,20 @@ p6 <- ggplot(cfps.fused.out.syn.normed,
   ) +
   theme_minimal()
 
-ggplotly(p6, tooltip = c("label", "size", "color"))
+widget<-ggplotly(p6, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.output.normed.post.in.AN05B102')
+my.gg.save(p6,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.output.normed.post.in.AN05B102')
+p1
+p2
+p3
+p4
+p5
 p6
+
+
 ```
+
+
 
 #plots with size corresponding to coutput to AN09B017
 ```{r}
@@ -729,8 +1346,9 @@ p1 <- ggplot(cfps.fused.bristle.out,
   ) +
   theme_minimal()
 
-ggplotly(p1, tooltip = c("label", "size", "color"))
-p1
+widget<-ggplotly(p1, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.bristle.output.total.weight.AN09B017')
+my.gg.save(p1,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.bristle.output.total.weight.AN09B017')
 
 #2
 p2 <- ggplot(cfps.fused.bristle.out, 
@@ -756,8 +1374,9 @@ p2 <- ggplot(cfps.fused.bristle.out,
   ) +
   theme_minimal()
 
-ggplotly(p2, tooltip = c("label", "size", "color"))
-p2
+widget<- ggplotly(p2, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.bristle.output.normed.ncells.AN09B017')
+my.gg.save(p2,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.bristle.output.normed.ncells.AN09B017')
 
 #5
 p5 <- ggplot(cfps.fused.bristle.out.syn.normed, 
@@ -783,8 +1402,9 @@ p5 <- ggplot(cfps.fused.bristle.out.syn.normed,
   ) +
   theme_minimal()
 
-ggplotly(p5, tooltip = c("label", "size", "color"))
-p5
+widget<-ggplotly(p5, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.bristle.output.normed.post.in.AN09B017')
+my.gg.save(p5,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.bristle.output.normed.post.in.AN09B017')
 
 #3
 p3 <- ggplot(cfps.fused.out, 
@@ -810,9 +1430,9 @@ p3 <- ggplot(cfps.fused.out,
   ) +
   theme_minimal()
 
-ggplotly(p3, tooltip = c("label", "size", "color"))
-p3
-
+widget<-ggplotly(p3, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.output.total.weight.AN09B017')
+my.gg.save(p3,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.output.total.weight.AN09B017')
 #4
 p4 <- ggplot(cfps.fused.out, 
              aes(x = normed.weight_fcell, 
@@ -837,9 +1457,10 @@ p4 <- ggplot(cfps.fused.out,
   ) +
   theme_minimal()
 
-ggplotly(p4, tooltip = c("label", "size", "color"))
+widget<- ggplotly(p4, tooltip = c("label", "size", "color"))
 
-p4
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.output.normed.ncells.AN09B017')
+my.gg.save(p4,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.output.normed.ncells.AN09B017')
 
 #6
 p6 <- ggplot(cfps.fused.out.syn.normed, 
@@ -865,7 +1486,14 @@ p6 <- ggplot(cfps.fused.out.syn.normed,
   ) +
   theme_minimal()
 
-ggplotly(p6, tooltip = c("label", "size", "color"))
+widget<-ggplotly(p6, tooltip = c("label", "size", "color"))
+save.plotly(widget,c('output.polarity.exploration','mcell.fcell.output','interactive'),'MFcell.output.normed.post.in.AN09B017')
+my.gg.save(p6,c('output.polarity.exploration','mcell.fcell.output'),'MFcell.output.normed.post.in.AN09B017')
+p1
+p2
+p3
+p4
+p5
 p6
 ```
 ### 2.3.4 3D viz F vs M input and connection to secondary
@@ -888,7 +1516,7 @@ p <- plot_ly(
   colors = c("blue", "red", "green"),
   type = "scatter3d",
   mode = "markers",
-  marker = list(size = 4),
+  marker = list(size = 2),
   text = ~paste(
     "Type:", type.post
   ),
@@ -918,7 +1546,7 @@ p <- layout(p,
     )
   )
 )
-
+save.plotly(p,c('output.polarity.exploration','mcell.fcell.output','interactive3d'),'MFcell.output.normed.post.in.AN09B017')
 p
 
 ```
@@ -944,7 +1572,7 @@ p <- plot_ly(
   colors = c("blue", "red", "green"),
   type = "scatter3d",
   mode = "markers",
-  marker = list(size = 4),
+  marker = list(size = 2),
   text = ~paste(
     "Type:", type.post
   ),
@@ -974,8 +1602,10 @@ p <- layout(p,
     )
   )
 )
-
+save.plotly(p,c('output.polarity.exploration','mcell.fcell.output','interactive3d'),'MFcell.bristle.output.normed.post.in.AN09B017')
 p
+
+
 
 ```
 
@@ -987,13 +1617,10 @@ print(cfps.fused.bristle.out.syn.normed%>%
         summarize(output.2.AN09B017.normed=sum(output.2.AN09B017.normed),
                   output.2.AN05B102.normed=sum(output.2.AN05B102.normed)))
 
-print(AN09B017.normed.input%>%
-        left_join(mba%>%
-                    filter(type%in%AN09B017.normed.input$type.pre)%>%
-                    select(type,consensus_nt)%>%
-                    distinct(),by=c('type.pre'='type'))%>%
+print(cfps.fused.out.syn.normed%>%
         group_by(consensus_nt)%>%
-        summarize(output.2.AN09B017.normed=sum(weight)))
+        summarize(output.2.AN09B017.normed=sum(output.2.AN09B017.normed),
+                  output.2.AN05B102.normed=sum(output.2.AN05B102.normed)))
 
 
 print(AN05B102.normed.input%>%
