@@ -33,7 +33,7 @@ synapse_threshold=5
 mba<-mcns_body_annotations()
 mba.static<-mcns_body_annotations()
 mba<-mba%>%mutate(type=ifelse(type=='',NA,type))
-conna = neuprint_login(dataset='male-cns:v0.8',server='https://neuprint-cns.janelia.org/')
+conna = neuprint_login(dataset='male-cns:v0.9',server='https://neuprint-cns.janelia.org/')
 leg.t1=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T1)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T1)(L)"))
 leg.t2=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T2)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T2)(L)"))
 leg.t3=rbind(neuprint_bodies_in_ROI(roi = "LegNp(T3)(R)"),neuprint_bodies_in_ROI(roi = "LegNp(T3)(L)"))
@@ -512,7 +512,14 @@ overwrite.2.mfcell <- T
 interesting.neurons <- c('SNch05a','SNch05b','SNch03','SNch04','SNch09','SNch01',
                          'ANXXX093','AN13B002','AN05B023','AN05B025','AN05B102','AN05B035','AN09B017',
                          'IN05B011','IN05B002','SNch11','SNch08','SNch10')
-interesting.neurons <- c(interesting.neurons,mba%>%filter(grepl('ppk',receptor_type),!is.na(type))%>%pull(type)%>%unique())
+interesting.neurons <- c('LgLG1a','LgLG1b','WG3','WG4','LgLG3b','LgLG3a','SNch01',
+                         'ANXXX093','AN13B002','AN05B023','AN05B025','AN05B102','AN05B035','AN09B017',
+                         'IN05B011','IN05B002','SNch11','SNch08','SNch10')
+
+interesting.neurons <- c(interesting.neurons,mba%>%
+                           filter(grepl('ppk',receptor_type),!is.na(type))%>%
+                           pull(type)%>%
+                           unique())
 connectivity.neurons.in <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'i')%>%
   select(pre_id,post_id,weight)
 connectivity.neurons.out <- cf_partners(cf_ids(malecns=mba%>%filter(type %in% interesting.neurons)%>%pull(bodyid)),threshold=5,partners = 'o')%>%
@@ -522,12 +529,15 @@ connectivity.neurons.all <- rbind(connectivity.neurons.in,connectivity.neurons.o
   distinct()%>%
   left_join(mba%>%
               select(bodyid,type,consensus_nt,receptor_type,superclass)%>%
-              rename(pre_type=type,pre_id=bodyid,pre_nt=consensus_nt,pre_receptor_type=receptor_type,pre_superclass=superclass),by='pre_id')%>%
+              mutate(bodyid=as.integer(bodyid))%>%
+              rename(pre_type=type,pre_id=bodyid,pre_nt=consensus_nt,pre_receptor_type=receptor_type,pre_superclass=superclass),
+            by='pre_id')%>%
   left_join(mba%>%
               select(bodyid,type,consensus_nt,receptor_type,superclass)%>%
+              mutate(bodyid=as.integer(bodyid))%>%
               rename(post_type=type,post_id=bodyid,post_nt=consensus_nt,post_receptor_type=receptor_type,post_superclass=superclass),by='post_id')%>%
   mutate(real_pre_type=pre_type,
-         real_opost_type=post_type)%>%
+         real_post_type=post_type)%>%
   mutate(pre_type=case_when(
     pre_receptor_type == 'putative_ppk23' ~ 'mcell',
     pre_receptor_type == 'putative_ppk25' ~ 'fcell',
@@ -537,7 +547,6 @@ connectivity.neurons.all <- rbind(connectivity.neurons.in,connectivity.neurons.o
     post_receptor_type == 'putative_ppk23' ~ 'mcell',
     post_receptor_type == 'putative_ppk25' ~ 'fcell',
     .default = as.character(post_type))
-    
   )%>%
   mutate(pre_type=case_when(
     pre_superclass == 'vnc_sensory' ~ case_when(
@@ -576,10 +585,10 @@ post.sum <- cf_partner_summary(cf_ids(malecns=unique(connectivity.neurons.all$po
 connectivity.neurons.all.grouped <- connectivity.neurons.all%>%  
   mutate(
     real_pre_type = str_remove_all(as.character(real_pre_type), "[()]"),
-    real_opost_type = str_remove_all(as.character(real_opost_type), "[()]")
+    real_post_type = str_remove_all(as.character(real_post_type), "[()]")
   )%>%
   left_join(pre.sum,by=c('real_pre_type'='pre_type'))%>%
-  left_join(post.sum,by=c('real_opost_type'='post_type'))%>%
+  left_join(post.sum,by=c('real_post_type'='post_type'))%>%
   mutate(
     pre_type = str_remove_all(as.character(pre_type), "[()]"),
     post_type = str_remove_all(as.character(post_type), "[()]")
